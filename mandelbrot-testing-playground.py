@@ -536,7 +536,7 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
     _t_total = (time.perf_counter() - _t0) * 1000
     _PERF_STATS["render_count"] += 1
     _PERF_STATS["total_render_ms"] += _t_total
-    if _PERF_STATS["render_count"] % 10 == 0:
+    if _PERF_STATS["render_count"] % 10 == 0 and os.environ.get("MB_DEBUG_PERF"):
         print(f"[render] n={_PERF_STATS['render_count']} "
               f"compute={_t_compute:.0f}ms post={_t_total-_t_compute:.0f}ms "
               f"avg={_PERF_STATS['total_render_ms']/_PERF_STATS['render_count']:.0f}ms "
@@ -1105,7 +1105,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
              f"render={_t_render*1000:.1f}ms blit={_t_blit*1000:.1f}ms "
              f"flip={_t_flip*1000:.1f}ms "
              f"gpu={_used_gpu} hold={still_interacting} drag={dragging} size={width}x{height} iter={state['max_iter']} events={len(events)}")
-        if frame_num % 30 == 0:
+        if frame_num % 30 == 0 and os.environ.get("MB_DEBUG_PERF"):
             print(f"[perf] frame={frame_num} total={time.perf_counter()-_t_frame_start:.1f}ms "
                   f"render={_t_render*1000:.0f}ms blit={_t_blit*1000:.0f}ms "
                   f"flip={_t_flip*1000:.0f}ms gpu={_used_gpu} drag={dragging} "
