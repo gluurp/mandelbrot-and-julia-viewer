@@ -899,10 +899,6 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     last_render_xmax = xmax
                     last_render_ymin = ymin
                     last_render_ymax = ymax
-                    last_render_xmin = xmin
-                    last_render_xmax = xmax
-                    last_render_ymin = ymin
-                    last_render_ymax = ymax
 
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
@@ -956,19 +952,58 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                 action, mod_val = result
                 if mod_val != 0 and not bool(pygame.key.get_mods() & mod_val):
                     continue
-                if action == "reset-view":
+
+                _mult = 10.0 if is_shift_held() else 1.0
+
+                _num_steppers = {
+                    "stripe-up":   lambda: state.update(stripe_s=(state["stripe_s"] + 1.0 * _mult) % 6.0),
+                    "stripe-down": lambda: state.update(stripe_s=max(0.0, state["stripe_s"] - 1.0 * _mult)),
+                    "step-up":     lambda: state.update(step_s=min(state["step_s"] + 1.0 * _mult, 8.0)),
+                    "step-down":   lambda: state.update(step_s=max(0.0, state["step_s"] - 1.0 * _mult)),
+                    "phase-up":    lambda: state.update(phase=step_val(state["phase"], 0.05, 0.0, 1.0, _mult)),
+                    "phase-down":  lambda: state.update(phase=step_val(state["phase"], -0.05, 0.0, 1.0, _mult)),
+                    "light-angle-up":   lambda: state.update(light_angle=step_val(state["light_angle"], 0.02, 0.0, 1.0, _mult)),
+                    "light-angle-down": lambda: state.update(light_angle=step_val(state["light_angle"], -0.02, 0.0, 1.0, _mult)),
+                    "light-azim-up":    lambda: state.update(light_azim=step_val(state["light_azim"], 0.02, 0.0, 1.0, _mult)),
+                    "light-azim-down":  lambda: state.update(light_azim=step_val(state["light_azim"], -0.02, 0.0, 1.0, _mult)),
+                    "light-i-up":       lambda: state.update(light_i=step_val(state["light_i"], 0.05, 0.0, 1.0, _mult)),
+                    "light-i-down":     lambda: state.update(light_i=step_val(state["light_i"], -0.05, 0.0, 1.0, _mult)),
+                    "k-amb-up":    lambda: state.update(k_ambiant=step_val(state["k_ambiant"], 0.05, 0.0, 1.0, _mult)),
+                    "k-amb-down":  lambda: state.update(k_ambiant=step_val(state["k_ambiant"], -0.05, 0.0, 1.0, _mult)),
+                    "k-diff-up":   lambda: state.update(k_diffuse=step_val(state["k_diffuse"], 0.05, 0.0, 1.0, _mult)),
+                    "k-diff-down": lambda: state.update(k_diffuse=step_val(state["k_diffuse"], -0.05, 0.0, 1.0, _mult)),
+                    "k-spec-up":   lambda: state.update(k_specular=step_val(state["k_specular"], 0.05, 0.0, 1.0, _mult)),
+                    "k-spec-down": lambda: state.update(k_specular=step_val(state["k_specular"], -0.05, 0.0, 1.0, _mult)),
+                    "shininess-up":   lambda: state.update(shininess=step_val(state["shininess"], 2.0, 0.0, 100.0, _mult)),
+                    "shininess-down": lambda: state.update(shininess=step_val(state["shininess"], -2.0, 0.0, 100.0, _mult)),
+                    "rgb-r-up":   lambda: state["rgb_thetas"].__setitem__(0, step_val(state["rgb_thetas"][0], 0.02, 0.0, 1.0, _mult)),
+                    "rgb-r-down": lambda: state["rgb_thetas"].__setitem__(0, step_val(state["rgb_thetas"][0], -0.02, 0.0, 1.0, _mult)),
+                    "rgb-g-up":   lambda: state["rgb_thetas"].__setitem__(1, step_val(state["rgb_thetas"][1], 0.02, 0.0, 1.0, _mult)),
+                    "rgb-g-down": lambda: state["rgb_thetas"].__setitem__(1, step_val(state["rgb_thetas"][1], -0.02, 0.0, 1.0, _mult)),
+                    "rgb-b-up":   lambda: state["rgb_thetas"].__setitem__(2, step_val(state["rgb_thetas"][2], 0.02, 0.0, 1.0, _mult)),
+                    "rgb-b-down": lambda: state["rgb_thetas"].__setitem__(2, step_val(state["rgb_thetas"][2], -0.02, 0.0, 1.0, _mult)),
+                }
+
+                if action in _num_steppers:
+                    _num_steppers[action]()
+                    _RENDER_CACHE.clear()
+                    needs_render = True
+
+                elif action == "reset-view":
                     xmin, xmax = -2.5, 1.0
                     ymin, ymax = -1.5, 1.5
                     xmin, xmax, ymin, ymax = fix_aspect_ratio(xmin, xmax, ymin, ymax, width, height)
                     needs_render = True
+
                 elif action == "iter-up":
                     state["max_iter"] = next_pow2(state["max_iter"])
                     needs_render = True
+
                 elif action == "iter-down":
                     state["max_iter"] = max(1, prev_pow2(state["max_iter"]))
                     needs_render = True
+
                 elif action == "cycle-color":
-                    # Cycle through preset RGB theta values
                     idx = 0
                     for i, preset in enumerate(COLOR_THETAS):
                         if [round(t, 2) for t in state["rgb_thetas"]] == [round(t, 2) for t in preset]:
@@ -978,143 +1013,16 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     state["rgb_thetas"] = list(COLOR_THETAS[idx])
                     _RENDER_CACHE.clear()
                     needs_render = True
+
                 elif action == "toggle-gpu":
                     state["use_gpu"] = not (state["use_gpu"] and _CUDA_AVAILABLE)
                     _RENDER_CACHE.clear()
                     needs_render = True
-                elif action == "stripe-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["stripe_s"] = (state["stripe_s"] + 1.0 * mult) % 6.0
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "stripe-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["stripe_s"] = max(0.0, state["stripe_s"] - 1.0 * mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "step-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["step_s"] = min(state["step_s"] + 1.0 * mult, 8.0)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "step-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["step_s"] = max(0.0, state["step_s"] - 1.0 * mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
+
                 elif action == "toggle-info":
                     overlay.toggle()
                     needs_render = True
-                elif action == "phase-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["phase"] = step_val(state["phase"], 0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "phase-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["phase"] = step_val(state["phase"], -0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "light-angle-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["light_angle"] = step_val(state["light_angle"], 0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "light-angle-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["light_angle"] = step_val(state["light_angle"], -0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "light-azim-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["light_azim"] = step_val(state["light_azim"], 0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "light-azim-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["light_azim"] = step_val(state["light_azim"], -0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "light-i-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["light_i"] = step_val(state["light_i"], 0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "light-i-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["light_i"] = step_val(state["light_i"], -0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "k-amb-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["k_ambiant"] = step_val(state["k_ambiant"], 0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "k-amb-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["k_ambiant"] = step_val(state["k_ambiant"], -0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "k-diff-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["k_diffuse"] = step_val(state["k_diffuse"], 0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "k-diff-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["k_diffuse"] = step_val(state["k_diffuse"], -0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "k-spec-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["k_specular"] = step_val(state["k_specular"], 0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "k-spec-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["k_specular"] = step_val(state["k_specular"], -0.05, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "shininess-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["shininess"] = step_val(state["shininess"], 2.0, 0.0, 100.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "shininess-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["shininess"] = step_val(state["shininess"], -2.0, 0.0, 100.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "rgb-r-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["rgb_thetas"][0] = step_val(state["rgb_thetas"][0], 0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "rgb-r-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["rgb_thetas"][0] = step_val(state["rgb_thetas"][0], -0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "rgb-g-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["rgb_thetas"][1] = step_val(state["rgb_thetas"][1], 0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "rgb-g-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["rgb_thetas"][1] = step_val(state["rgb_thetas"][1], -0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "rgb-b-up":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["rgb_thetas"][2] = step_val(state["rgb_thetas"][2], 0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
-                elif action == "rgb-b-down":
-                    mult = 10.0 if is_shift_held() else 1.0
-                    state["rgb_thetas"][2] = step_val(state["rgb_thetas"][2], -0.02, 0.0, 1.0, mult)
-                    _RENDER_CACHE.clear()
-                    needs_render = True
+
                 elif action == "quit":
                     running = False
 
