@@ -972,9 +972,9 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                 _mult = 10.0 if is_shift_held() else 1.0
 
                 _num_steppers = {
-                    "stripe-up":   lambda: state.update(stripe_s=(state["stripe_s"] + 1.0 * _mult) % 6.0),
+                    "stripe-up":   lambda: state.update(stripe_s=int((state["stripe_s"] + 1.0 * _mult) % 101)),
                     "stripe-down": lambda: state.update(stripe_s=max(0.0, state["stripe_s"] - 1.0 * _mult)),
-                    "step-up":     lambda: state.update(step_s=min(state["step_s"] + 1.0 * _mult, 8.0)),
+                    "step-up":     lambda: state.update(step_s=int(min(state["step_s"] + 1.0 * _mult, 100.0))),
                     "step-down":   lambda: state.update(step_s=max(0.0, state["step_s"] - 1.0 * _mult)),
                     "phase-up":    lambda: state.update(phase=step_val(state["phase"], 0.05, 0.0, 1.0, _mult)),
                     "phase-down":  lambda: state.update(phase=step_val(state["phase"], -0.05, 0.0, 1.0, _mult)),
