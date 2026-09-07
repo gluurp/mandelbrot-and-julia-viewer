@@ -185,7 +185,7 @@ def smooth_iter(c, maxiter, stripe_s, stripe_sig):
 @njit
 def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light):
     ncol = colortable.shape[0] - 1
-    niter = math.sqrt(niter) % ncycle / ncycle
+    niter = math.sqrt(niter) % 1.0
     col_i = round(niter * ncol)
 
     bright = blinn_phong(normal, light)
@@ -263,7 +263,7 @@ def _blinn_phong_cuda(normal_re, normal_im, light):
 
 @cuda.jit(device=True)
 def _color_pixel_cuda(niter, stripe_a, step_s, dem, nr, ni, colortable, ncol, light, ncycle):
-    niter = math.sqrt(niter) % ncycle / ncycle
+    niter = math.sqrt(niter) % 1.0
     col_i = int(round(niter * ncol))
 
     bright = _blinn_phong_cuda(nr, ni, light)
@@ -361,7 +361,7 @@ if cuda is not None:
                         normal_im = normal_im / ndem
                     break
             if niter > 0:
-                cniter = math.sqrt(niter) % ncycle / ncycle
+                cniter = math.sqrt(niter) % 1.0
                 col_i = int(round(cniter * ncol))
                 # Inline blinn_phong
                 mag = math.sqrt(normal_re * normal_re + normal_im * normal_im)
