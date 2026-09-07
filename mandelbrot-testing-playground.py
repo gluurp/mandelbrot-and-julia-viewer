@@ -198,6 +198,7 @@ def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light,
     col_i = round(niter * ncol)
 
     bright = blinn_phong(normal, light)
+    dem = max(1e-10, dem)
     dem = -math.log(dem) / 12
     dem = 1.0 / (1.0 + math.exp(-10 * ((2 * dem - 1) / 2)))
 
@@ -395,6 +396,7 @@ if cuda is not None:
                     bright = bright * light[2] + (1 - light[2]) / 2
                 else:
                     bright = 0.0
+                dem = max(1e-10, dem)
                 dem = -math.log(dem) / 12
                 dem = 1.0 / (1.0 + math.exp(-10 * ((2 * dem - 1) / 2)))
                 nshader = 0
@@ -553,6 +555,8 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
     mat = compute_image(width, height, xmin, xmax, ymin, ymax, max_iter, params)
     _t_compute = (time.perf_counter() - _t0) * 1000
     mat = mat[::-1, :, :]
+    mat = np.nan_to_num(mat, nan=0.0, posinf=1.0, neginf=0.0)
+    mat = np.clip(mat, 0.0, 1.0)
     rgb = (mat * 255.0).astype(np.uint8)
     rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
     surf = pygame.surfarray.make_surface(rgb_t)
@@ -663,6 +667,8 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         if sx < ex:
             mat = compute_image(ox, height, sx, ex, ymin, ymax, state["max_iter"], params)
             mat = mat[::-1, :, :]
+            mat = np.nan_to_num(mat, nan=0.0, posinf=1.0, neginf=0.0)
+            mat = np.clip(mat, 0.0, 1.0)
             rgb = (mat * 255.0).astype(np.uint8)
             rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
             strip = pygame.surfarray.make_surface(rgb_t)
@@ -674,6 +680,8 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         if sx < ex:
             mat = compute_image(ow, height, sx, ex, ymin, ymax, state["max_iter"], params)
             mat = mat[::-1, :, :]
+            mat = np.nan_to_num(mat, nan=0.0, posinf=1.0, neginf=0.0)
+            mat = np.clip(mat, 0.0, 1.0)
             rgb = (mat * 255.0).astype(np.uint8)
             rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
             strip = pygame.surfarray.make_surface(rgb_t)
@@ -685,6 +693,8 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         if sy < ey:
             mat = compute_image(width, oy, xmin, xmax, sy, ey, state["max_iter"], params)
             mat = mat[::-1, :, :]
+            mat = np.nan_to_num(mat, nan=0.0, posinf=1.0, neginf=0.0)
+            mat = np.clip(mat, 0.0, 1.0)
             rgb = (mat * 255.0).astype(np.uint8)
             rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
             strip = pygame.surfarray.make_surface(rgb_t)
@@ -696,6 +706,8 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         if sy < ey:
             mat = compute_image(width, oh, xmin, xmax, sy, ey, state["max_iter"], params)
             mat = mat[::-1, :, :]
+            mat = np.nan_to_num(mat, nan=0.0, posinf=1.0, neginf=0.0)
+            mat = np.clip(mat, 0.0, 1.0)
             rgb = (mat * 255.0).astype(np.uint8)
             rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
             strip = pygame.surfarray.make_surface(rgb_t)
