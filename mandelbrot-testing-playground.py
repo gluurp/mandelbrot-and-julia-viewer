@@ -1,11 +1,17 @@
 import math
 import os
+import warnings
 import numpy as np
 from numba import njit, prange, float64, int64
 import pygame
 import sys
 import argparse
 import time
+
+if not os.environ.get("MB_DEBUG_PERF"):
+    warnings.filterwarnings("ignore", message=".*Grid size.*GPU under-utilization.*",
+                            category=Warning)
+    warnings.filterwarnings("ignore", module="numba.cuda.dispatcher")
 
 
 try:
