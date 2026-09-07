@@ -198,14 +198,13 @@ def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light)
         nshader += 1
         shader += stripe_a
     if step_s > 0:
-        # step_s controls color quantization: higher = more bands
+        # step_s controls banding in the lighting shader, not the base color
         n_steps = max(1.0, step_s)
-        quantized = math.floor(niter * n_steps) / n_steps
-        x = (niter - quantized) * n_steps
-        col_i = round(quantized * ncol)
+        x = niter * n_steps - math.floor(niter * n_steps)
         light_step = 6 * (1 - x ** 5 - (1 - x) ** 100) / 10
-        x2 = (niter - quantized) * n_steps * 8
-        light_step2 = 6 * (1 - (x2 - math.floor(x2)) ** 5 - (1 - (x2 - math.floor(x2))) ** 30) / 10
+        x2 = x * 8
+        x2f = x2 - math.floor(x2)
+        light_step2 = 6 * (1 - x2f ** 5 - (1 - x2f) ** 30) / 10
         light_step = overlay(light_step2, light_step, 1)
         nshader += 1
         shader += light_step
@@ -277,11 +276,9 @@ def _color_pixel_cuda(niter, stripe_a, step_s, dem, nr, ni, colortable, ncol, li
         shader += stripe_a
     if step_s > 0:
         n_steps = max(1.0, step_s)
-        quantized = math.floor(niter * n_steps) / n_steps
-        x = (niter - quantized) * n_steps
-        col_i = int(round(quantized * ncol))
+        x = niter * n_steps - math.floor(niter * n_steps)
         light_step = 6 * (1 - math.pow(x, 5) - math.pow(1 - x, 30)) / 10
-        x2 = (niter - quantized) * n_steps * 8
+        x2 = x * 8
         x2f = x2 - math.floor(x2)
         light_step2 = 6 * (1 - math.pow(x2f, 5) - math.pow(1 - x2f, 30)) / 10
         if 2 * light_step2 < 1:
@@ -391,12 +388,11 @@ if cuda is not None:
                     shader += stripe_a
                 if step_s > 0:
                     n_steps = max(1.0, step_s)
-                    quantized = math.floor(cniter * n_steps) / n_steps
-                    x2 = (cniter - quantized) * n_steps
-                    col_i = int(round(quantized * ncol))
-                    light_step = 6 * (1 - math.pow(x2, 5) - math.pow(1 - x2, 30)) / 10
-                    x8 = (cniter - quantized) * n_steps * 8
-                    light_step2 = 6 * (1 - math.pow(x8 - math.floor(x8), 5) - math.pow(1 - (x8 - math.floor(x8)), 30)) / 10
+                    x = cniter * n_steps - math.floor(cniter * n_steps)
+                    light_step = 6 * (1 - math.pow(x, 5) - math.pow(1 - x, 30)) / 10
+                    x8 = x * 8
+                    x8f = x8 - math.floor(x8)
+                    light_step2 = 6 * (1 - math.pow(x8f, 5) - math.pow(1 - x8f, 30)) / 10
                     if 2 * light_step2 < 1:
                         ls = 2 * light_step * light_step2
                     else:
