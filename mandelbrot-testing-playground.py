@@ -189,10 +189,13 @@ def smooth_iter(c, maxiter, stripe_s, stripe_sig):
 
 
 @njit
-def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light):
+def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light, smooth=True):
     ncol = colortable.shape[0] - 1
-    niter = math.sqrt(niter) / ncycle
-    col_i = round(niter * ncol) % ncol
+    if smooth:
+        niter = math.sqrt(niter) % 1.0
+    else:
+        niter = float(int(math.sqrt(niter)))
+    col_i = round(niter * ncol)
 
     bright = blinn_phong(normal, light)
     dem = -math.log(dem) / 12
@@ -204,11 +207,12 @@ def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light)
         nshader += 1
         shader += stripe_a
     if step_s > 0:
-        # step_s controls banding in the lighting shader, not the base color
         n_steps = max(1.0, step_s)
-        x = niter * n_steps - math.floor(niter * n_steps)
+        quantized = math.floor(niter * n_steps) / n_steps
+        x = (niter - quantized) * n_steps
+        col_i = round(quantized * ncol)
         light_step = 6 * (1 - x ** 5 - (1 - x) ** 100) / 10
-        x2 = x * 8
+        x2 = (niter - quantized) * n_steps * 8
         x2f = x2 - math.floor(x2)
         light_step2 = 6 * (1 - x2f ** 5 - (1 - x2f) ** 30) / 10
         light_step = overlay(light_step2, light_step, 1)
@@ -267,8 +271,11 @@ def _blinn_phong_cuda(normal_re, normal_im, light):
 
 
 @cuda.jit(device=True)
-def _color_pixel_cuda(niter, stripe_a, step_s, dem, nr, ni, colortable, ncol, light, ncycle):
-    niter = math.sqrt(niter) / ncycle
+def _color_pixel_cuda(niter, stripe_a, step_s, dem, nr, ni, colortable, ncol, light, ncycle, smooth):
+    if smooth:
+        niter = math.sqrt(niter) % 1.0
+    else:
+        niter = float(int(math.sqrt(niter)))
     col_i = int(round(niter * ncol)) % ncol
 
     bright = _blinn_phong_cuda(nr, ni, light)
@@ -307,7 +314,7 @@ def _color_pixel_cuda(niter, stripe_a, step_s, dem, nr, ni, colortable, ncol, li
 
 @njit(parallel=True)
 def compute_set_cpu(creal, cim, maxiter, colortable, ncycle,
-                    stripe_s, stripe_sig, step_s, diag, light):
+                    stripe_s, stripe_sig, step_s, diag, light, smooth=True):
     xpixels = len(creal)
     ypixels = len(cim)
     mat = np.zeros((ypixels, xpixels, 3), dtype=np.float32)
@@ -317,7 +324,7 @@ def compute_set_cpu(creal, cim, maxiter, colortable, ncycle,
                 complex(creal[x], cim[y]), maxiter, stripe_s, stripe_sig)
             if niter > 0:
                 r, g, b = color_pixel(niter, stripe_a, step_s, dem / diag,
-                                      normal, colortable, ncycle, light)
+                                      normal, colortable, ncycle, light, smooth)
                 mat[y, x, 0] = r
                 mat[y, x, 1] = g
                 mat[y, x, 2] = b
@@ -327,7 +334,7 @@ def compute_set_cpu(creal, cim, maxiter, colortable, ncycle,
 if cuda is not None:
     @cuda.jit
     def compute_set_gpu(mat, xmin, xmax, ymin, ymax, maxiter, colortable,
-                        ncycle, stripe_s, stripe_sig, step_s, diag, light):
+                        ncycle, stripe_s, stripe_sig, step_s, diag, light, smooth):
         index = cuda.grid(1)
         x = index % mat.shape[1]
         y = index // mat.shape[1]
@@ -364,7 +371,10 @@ if cuda is not None:
                         normal_im = normal_im / ndem
                     break
             if niter > 0:
-                cniter = math.sqrt(niter) / ncycle
+                if smooth:
+                    cniter = math.sqrt(niter) % 1.0
+                else:
+                    cniter = float(int(math.sqrt(niter)))
                 col_i = int(round(cniter * ncol)) % ncol
                 # Inline blinn_phong
                 mag = math.sqrt(normal_re * normal_re + normal_im * normal_im)
@@ -394,9 +404,11 @@ if cuda is not None:
                     shader += stripe_a
                 if step_s > 0:
                     n_steps = max(1.0, step_s)
-                    x = cniter * n_steps - math.floor(cniter * n_steps)
-                    light_step = 6 * (1 - math.pow(x, 5) - math.pow(1 - x, 30)) / 10
-                    x8 = x * 8
+                    quantized = math.floor(cniter * n_steps) / n_steps
+                    x2 = (cniter - quantized) * n_steps
+                    col_i = int(round(quantized * ncol))
+                    light_step = 6 * (1 - math.pow(x2, 5) - math.pow(1 - x2, 30)) / 10
+                    x8 = (cniter - quantized) * n_steps * 8
                     x8f = x8 - math.floor(x8)
                     light_step2 = 6 * (1 - math.pow(x8f, 5) - math.pow(1 - x8f, 30)) / 10
                     if 2 * light_step2 < 1:
@@ -452,6 +464,7 @@ def build_render_params(state, maxiter=None):
         "step_s": state["step_s"],
         "light": light,
         "use_gpu": state["use_gpu"] and _CUDA_AVAILABLE,
+        "smooth": state.get("smooth", True),
     }
 
 
@@ -480,7 +493,7 @@ def compute_image(width, height, xmin, xmax, ymin, ymax, maxiter, params):
                 mat, float64(xmin), float64(xmax), float64(ymin), float64(ymax),
                 int64(maxiter), colortable_d, float64(ncycle),
                 float64(stripe_s), float64(stripe_sig), float64(step_s),
-                float64(diag), light_d)
+                float64(diag), light_d, int64(params["smooth"]))
             cuda.synchronize()
             return mat.copy_to_host()
         except Exception as e:
@@ -490,7 +503,8 @@ def compute_image(width, height, xmin, xmax, ymin, ymax, maxiter, params):
     creal = np.linspace(xmin, xmax, width)
     cim = np.linspace(ymin, ymax, height)
     return compute_set_cpu(creal, cim, maxiter, colortable, ncycle,
-                           stripe_s, stripe_sig, step_s, diag, light)
+                           stripe_s, stripe_sig, step_s, diag, light,
+                           params.get("smooth", True))
 
 
 def fix_aspect_ratio(x_min, x_max, y_min, y_max, width, height):
@@ -570,6 +584,7 @@ class InfoOverlay:
             f"  [{keybinds['reset-view'].upper()}] reset view",
             f"  [{keybinds['quit'].upper()}] quit",
             f"  [{keybinds['toggle-gpu'].upper()}] toggle GPU/CPU",
+            f"  [{keybinds['toggle-smooth'].upper()}] toggle smooth/discrete",
             f"  [{keybinds['cycle-color'].upper()}] cycle color",
             f"  [{keybinds['zoom-in'].upper()}]/[{keybinds['zoom-out'].upper()}] zoom",
             f"  [{keybinds['iter-up'].upper()}]/[{keybinds['iter-down'].upper()}] iter up/down",
@@ -601,6 +616,7 @@ class InfoOverlay:
             f"  shininess   = {state['shininess']:.0f}",
             f"  palette = {['fire','cool','deep'][next((i for i, p in enumerate(COLOR_THETAS) if [round(t,2) for t in state['rgb_thetas']] == [round(t,2) for t in p]), 0)]}",
             f"  {'GPU' if state['use_gpu'] and _CUDA_AVAILABLE else 'CPU'}",
+            f"  {'smooth' if state.get('smooth', True) else 'discrete'}",
         ]
         bx, by = 40, 40
         max_w = max(font.size(line)[0] for line in lines)
@@ -732,6 +748,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         "rgb-g-down": "0",
         "rgb-b-up": "y",
         "rgb-b-down": "h",
+        "toggle-smooth": "u",
     }
     keybinds = {k: get_keybind(settings, k, v) for k, v in default_keybinds.items()}
 
@@ -838,6 +855,9 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         "k_diffuse": DEFAULT_K_DIFFUSE,
         "k_specular": DEFAULT_K_SPECULAR,
         "shininess": DEFAULT_SHININESS,
+        "smooth": get_persistent_setting(settings, "smooth",
+                                         cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
+                                         default=True),
     }
 
     _t0 = time.perf_counter()
@@ -1039,6 +1059,11 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     overlay.toggle()
                     needs_render = True
 
+                elif action == "toggle-smooth":
+                    state["smooth"] = not state["smooth"]
+                    _RENDER_CACHE.clear()
+                    needs_render = True
+
                 elif action == "quit":
                     running = False
 
@@ -1143,6 +1168,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
     settings["shininess"] = str(state["shininess"])
     settings["stripe_s"] = str(state["stripe_s"])
     settings["step_s"] = str(state["step_s"])
+    settings["smooth"] = str(state["smooth"])
     for action, kc in keybinds.items():
         settings[f"keybind.{action}"] = kc
     print(f"[debug] use_gpu={state['use_gpu']} cuda_available={_CUDA_AVAILABLE} "
