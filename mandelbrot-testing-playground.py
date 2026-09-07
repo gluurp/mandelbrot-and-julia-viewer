@@ -393,7 +393,7 @@ if cuda is not None:
                     n_steps = max(1.0, step_s)
                     quantized = math.floor(cniter * n_steps) / n_steps
                     x2 = (cniter - quantized) * n_steps
-                    col_i = int(quantized * ncol)
+                    col_i = int(round(quantized * ncol))
                     light_step = 6 * (1 - math.pow(x2, 5) - math.pow(1 - x2, 30)) / 10
                     x8 = (cniter - quantized) * n_steps * 8
                     light_step2 = 6 * (1 - math.pow(x8 - math.floor(x8), 5) - math.pow(1 - (x8 - math.floor(x8)), 30)) / 10
