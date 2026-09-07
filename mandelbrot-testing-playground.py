@@ -262,8 +262,8 @@ def _blinn_phong_cuda(normal_re, normal_im, light):
 
 
 @cuda.jit(device=True)
-def _color_pixel_cuda(niter, stripe_a, step_s, dem, nr, ni, colortable, ncol, light):
-    niter = math.sqrt(niter) % 1.0
+def _color_pixel_cuda(niter, stripe_a, step_s, dem, nr, ni, colortable, ncol, light, ncycle):
+    niter = math.sqrt(niter) % ncycle / ncycle
     col_i = int(round(niter * ncol))
 
     bright = _blinn_phong_cuda(nr, ni, light)
@@ -331,7 +331,7 @@ if cuda is not None:
         if y < mat.shape[0] and x < mat.shape[1]:
             creal = xmin + x / (mat.shape[1] - 1) * (xmax - xmin)
             cim = ymin + y / (mat.shape[0] - 1) * (ymax - ymin)
-            ncol = colortable.shape[0]
+            ncol = colortable.shape[0] - 1
             # Inline smooth_iter
             esc_radius_2 = 1e10
             zr, zi = 0.0, 0.0
