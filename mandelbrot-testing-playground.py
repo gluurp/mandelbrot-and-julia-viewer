@@ -276,12 +276,20 @@ def _color_pixel_cuda(niter, stripe_a, step_s, dem, nr, ni, colortable, ncol, li
         nshader += 1
         shader += stripe_a
     if step_s > 0:
-        n_steps = step_s
-        x = niter * n_steps - int(niter * n_steps)
-        col_i = int(niter * ncol)
+        n_steps = max(1.0, step_s)
+        quantized = math.floor(niter * n_steps) / n_steps
+        x = (niter - quantized) * n_steps
+        col_i = int(round(quantized * ncol))
         light_step = 6 * (1 - math.pow(x, 5) - math.pow(1 - x, 30)) / 10
+        x2 = (niter - quantized) * n_steps * 8
+        x2f = x2 - math.floor(x2)
+        light_step2 = 6 * (1 - math.pow(x2f, 5) - math.pow(1 - x2f, 30)) / 10
+        if 2 * light_step2 < 1:
+            ls = 2 * light_step * light_step2
+        else:
+            ls = 1 - 2 * (1 - light_step) * (1 - light_step2)
         nshader += 1
-        shader += light_step
+        shader += ls
     if nshader > 0:
         bright = _overlay_cuda(bright, shader / nshader, 1) * (1 - dem) + dem * bright
 
@@ -353,8 +361,8 @@ if cuda is not None:
                         normal_im = normal_im / ndem
                     break
             if niter > 0:
-                cniter = math.sqrt(niter) % 1.0
-                col_i = int(cniter * ncol)
+                cniter = math.sqrt(niter) % ncycle / ncycle
+                col_i = int(round(cniter * ncol))
                 # Inline blinn_phong
                 mag = math.sqrt(normal_re * normal_re + normal_im * normal_im)
                 if mag > 0:
@@ -382,7 +390,7 @@ if cuda is not None:
                     nshader += 1
                     shader += stripe_a
                 if step_s > 0:
-                    n_steps = step_s
+                    n_steps = max(1.0, step_s)
                     quantized = math.floor(cniter * n_steps) / n_steps
                     x2 = (cniter - quantized) * n_steps
                     col_i = int(quantized * ncol)
