@@ -1,7 +1,7 @@
 import math
 import os
 import numpy as np
-from numba import njit, prange
+from numba import njit, prange, float64, int64
 import pygame
 import sys
 import argparse
@@ -471,8 +471,10 @@ def compute_image(width, height, xmin, xmax, ymin, ymax, maxiter, params):
             nthread = 256
             nblock = math.ceil(npixels / nthread)
             compute_set_gpu[nblock, nthread](
-                mat, xmin, xmax, ymin, ymax, maxiter, colortable_d, ncycle,
-                stripe_s, stripe_sig, step_s, diag, light_d)
+                mat, float64(xmin), float64(xmax), float64(ymin), float64(ymax),
+                int64(maxiter), colortable_d, float64(ncycle),
+                float64(stripe_s), float64(stripe_sig), float64(step_s),
+                float64(diag), light_d)
             cuda.synchronize()
             return mat.copy_to_host()
         except Exception as e:
@@ -626,12 +628,17 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
     scale_x = (xmax - xmin) / width
     scale_y = (ymax - ymin) / height
 
+    key = (tuple(state["rgb_thetas"]), state["phase"], state["use_gpu"] and _CUDA_AVAILABLE)
+    params = _RENDER_CACHE.get(key)
+    if params is None:
+        params = build_render_params(state)
+        _RENDER_CACHE[key] = params
+
     if ox > 0:
         sx = xmin
         ex = xmin + ox * scale_x
         if sx < ex:
-            mat = compute_image(ox, height, sx, ex, ymin, ymax, state["max_iter"],
-                               build_render_params(state))
+            mat = compute_image(ox, height, sx, ex, ymin, ymax, state["max_iter"], params)
             mat = mat[::-1, :, :]
             rgb = (mat * 255.0).astype(np.uint8)
             rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
@@ -642,8 +649,7 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         ex = xmax
         ow = -ox
         if sx < ex:
-            mat = compute_image(ow, height, sx, ex, ymin, ymax, state["max_iter"],
-                               build_render_params(state))
+            mat = compute_image(ow, height, sx, ex, ymin, ymax, state["max_iter"], params)
             mat = mat[::-1, :, :]
             rgb = (mat * 255.0).astype(np.uint8)
             rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
@@ -654,8 +660,7 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         sy = ymax - oy * scale_y
         ey = ymax
         if sy < ey:
-            mat = compute_image(width, oy, xmin, xmax, sy, ey, state["max_iter"],
-                               build_render_params(state))
+            mat = compute_image(width, oy, xmin, xmax, sy, ey, state["max_iter"], params)
             mat = mat[::-1, :, :]
             rgb = (mat * 255.0).astype(np.uint8)
             rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
@@ -666,8 +671,7 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         ey = ymin - oy * scale_y
         oh = -oy
         if sy < ey:
-            mat = compute_image(width, oh, xmin, xmax, sy, ey, state["max_iter"],
-                               build_render_params(state))
+            mat = compute_image(width, oh, xmin, xmax, sy, ey, state["max_iter"], params)
             mat = mat[::-1, :, :]
             rgb = (mat * 255.0).astype(np.uint8)
             rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
