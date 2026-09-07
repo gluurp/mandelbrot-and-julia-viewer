@@ -191,8 +191,8 @@ def smooth_iter(c, maxiter, stripe_s, stripe_sig):
 @njit
 def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light):
     ncol = colortable.shape[0] - 1
-    niter = math.sqrt(niter) % 1.0
-    col_i = round(niter * ncol)
+    niter = math.sqrt(niter) / ncycle
+    col_i = round(niter * ncol) % ncol
 
     bright = blinn_phong(normal, light)
     dem = -math.log(dem) / 12
@@ -268,8 +268,8 @@ def _blinn_phong_cuda(normal_re, normal_im, light):
 
 @cuda.jit(device=True)
 def _color_pixel_cuda(niter, stripe_a, step_s, dem, nr, ni, colortable, ncol, light, ncycle):
-    niter = math.sqrt(niter) % 1.0
-    col_i = int(round(niter * ncol))
+    niter = math.sqrt(niter) / ncycle
+    col_i = int(round(niter * ncol)) % ncol
 
     bright = _blinn_phong_cuda(nr, ni, light)
     dem = -math.log(dem) / 12
@@ -364,8 +364,8 @@ if cuda is not None:
                         normal_im = normal_im / ndem
                     break
             if niter > 0:
-                cniter = math.sqrt(niter) % 1.0
-                col_i = int(round(cniter * ncol))
+                cniter = math.sqrt(niter) / ncycle
+                col_i = int(round(cniter * ncol)) % ncol
                 # Inline blinn_phong
                 mag = math.sqrt(normal_re * normal_re + normal_im * normal_im)
                 if mag > 0:
@@ -431,7 +431,7 @@ else:
     compute_set_gpu = None
 
 
-def build_render_params(state):
+def build_render_params(state, maxiter=None):
     rgb_thetas = list(state["rgb_thetas"])
     phase = state["phase"]
     colortable = make_colortable(np.array([t + phase for t in rgb_thetas], dtype=np.float64))
@@ -446,7 +446,7 @@ def build_render_params(state):
     ], dtype=np.float64)
     return {
         "colortable": colortable,
-        "ncy": math.sqrt(DEFAULT_NCYCLE),
+        "ncy": math.sqrt(maxiter) if maxiter else math.sqrt(DEFAULT_NCYCLE),
         "stripe_s": state["stripe_s"],
         "stripe_sig": state["stripe_sig"],
         "step_s": state["step_s"],
@@ -530,10 +530,10 @@ _PERF_STATS = {"render_count": 0, "total_render_ms": 0.0}
 
 
 def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
-    key = (tuple(state["rgb_thetas"]), state["phase"], state["use_gpu"] and _CUDA_AVAILABLE)
+    key = (tuple(state["rgb_thetas"]), state["phase"], state["use_gpu"] and _CUDA_AVAILABLE, max_iter)
     params = _RENDER_CACHE.get(key)
     if params is None:
-        params = build_render_params(state)
+        params = build_render_params(state, maxiter=max_iter)
         _RENDER_CACHE[key] = params
     _t0 = time.perf_counter()
     mat = compute_image(width, height, xmin, xmax, ymin, ymax, max_iter, params)
@@ -588,8 +588,8 @@ class InfoOverlay:
             f"  [{keybinds['rgb-b-up'].upper()}]/[{keybinds['rgb-b-down'].upper()}]    rgb_b      (0.02)",
             "---",
             f"  iter  = {state['max_iter']}",
-            f"  stripe_s={state['stripe_s']:.1f}",
-            f"  step_s  = {state['step_s']:.1f}",
+            f"  stripe_s={int(state['stripe_s'])}",
+            f"  step_s  = {int(state['step_s'])}",
             f"  phase   = {state['phase']:.2f} (0~1)",
             f"  rgb     = {state['rgb_thetas']}",
             f"  light_angle = {state['light_angle']:.2f}",
@@ -635,10 +635,10 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
     scale_x = (xmax - xmin) / width
     scale_y = (ymax - ymin) / height
 
-    key = (tuple(state["rgb_thetas"]), state["phase"], state["use_gpu"] and _CUDA_AVAILABLE)
+    key = (tuple(state["rgb_thetas"]), state["phase"], state["use_gpu"] and _CUDA_AVAILABLE, state["max_iter"])
     params = _RENDER_CACHE.get(key)
     if params is None:
-        params = build_render_params(state)
+        params = build_render_params(state, maxiter=state["max_iter"])
         _RENDER_CACHE[key] = params
 
     if ox > 0:
@@ -842,7 +842,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
 
     _t0 = time.perf_counter()
     compute_image(256, 256, xmin, xmax, ymin, ymax, 8,
-                  build_render_params(state))
+                  build_render_params(state, maxiter=max_iter))
     pygame.event.pump()
     _cpu_warm_ms = (time.perf_counter() - _t0) * 1000
     print(f"[warmup] CPU JIT compiled in {_cpu_warm_ms:.0f} ms")
@@ -852,7 +852,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         _t0 = time.perf_counter()
         try:
             compute_image(256, 256, xmin, xmax, ymin, ymax, 8,
-                          build_render_params({**state, "use_gpu": True}))
+                          build_render_params({**state, "use_gpu": True}, maxiter=max_iter))
             pygame.event.pump()
             _gpu_warm_ms = (time.perf_counter() - _t0) * 1000
             print(f"[warmup] CUDA JIT compiled in {_gpu_warm_ms:.0f} ms")
