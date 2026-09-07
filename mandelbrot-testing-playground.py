@@ -925,6 +925,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     drag_offset_y += dy
                     interacting = True
                     interact_timer = pygame.time.get_ticks()
+                    needs_render = True
 
             elif event.type == pygame.MOUSEWHEEL:
                 mouse_px, mouse_py = pygame.mouse.get_pos()
