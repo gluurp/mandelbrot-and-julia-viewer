@@ -478,7 +478,8 @@ def compute_image(width, height, xmin, xmax, ymin, ymax, maxiter, params):
             cuda.synchronize()
             return mat.copy_to_host()
         except Exception as e:
-            print(f"[gpu] falling back to CPU: {e}", file=sys.stderr)
+            if os.environ.get("MB_DEBUG_PERF"):
+                print(f"[gpu] falling back to CPU: {e}", file=sys.stderr)
 
     creal = np.linspace(xmin, xmax, width)
     cim = np.linspace(ymin, ymax, height)
