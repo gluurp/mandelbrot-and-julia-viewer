@@ -613,6 +613,64 @@ def prev_pow2(n):
     return 2 ** (n.bit_length() - 2)
 
 
+def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, offset_x, offset_y):
+    """Render only the strips of the screen not covered by the offset-blitted surface."""
+    ox = int(round(offset_x))
+    oy = int(round(offset_y))
+    if ox == 0 and oy == 0:
+        return
+    scale_x = (xmax - xmin) / width
+    scale_y = (ymax - ymin) / height
+
+    if ox > 0:
+        sx = xmin
+        ex = xmin + ox * scale_x
+        if sx < ex:
+            mat = compute_image(ox, height, sx, ex, ymin, ymax, state["max_iter"],
+                               build_render_params(state))
+            mat = mat[::-1, :, :]
+            rgb = (mat * 255.0).astype(np.uint8)
+            rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
+            strip = pygame.surfarray.make_surface(rgb_t)
+            screen.blit(strip, (0, 0))
+    elif ox < 0:
+        sx = xmax + ox * scale_x
+        ex = xmax
+        ow = -ox
+        if sx < ex:
+            mat = compute_image(ow, height, sx, ex, ymin, ymax, state["max_iter"],
+                               build_render_params(state))
+            mat = mat[::-1, :, :]
+            rgb = (mat * 255.0).astype(np.uint8)
+            rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
+            strip = pygame.surfarray.make_surface(rgb_t)
+            screen.blit(strip, (width + ox, 0))
+
+    if oy > 0:
+        sy = ymax - oy * scale_y
+        ey = ymax
+        if sy < ey:
+            mat = compute_image(width, oy, xmin, xmax, sy, ey, state["max_iter"],
+                               build_render_params(state))
+            mat = mat[::-1, :, :]
+            rgb = (mat * 255.0).astype(np.uint8)
+            rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
+            strip = pygame.surfarray.make_surface(rgb_t)
+            screen.blit(strip, (0, 0))
+    elif oy < 0:
+        sy = ymin
+        ey = ymin - oy * scale_y
+        oh = -oy
+        if sy < ey:
+            mat = compute_image(width, oh, xmin, xmax, sy, ey, state["max_iter"],
+                               build_render_params(state))
+            mat = mat[::-1, :, :]
+            rgb = (mat * 255.0).astype(np.uint8)
+            rgb_t = np.ascontiguousarray(np.transpose(rgb, (1, 0, 2)))
+            strip = pygame.surfarray.make_surface(rgb_t)
+            screen.blit(strip, (0, height + oy))
+
+
 def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_no_gpu=False):
     max_iter = cli_iter if cli_iter is not None else get_persistent_setting(settings, "iteration-max", cast=int, default=128)
     if cli_no_gpu:
@@ -663,24 +721,37 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
     keybinds = {k: get_keybind(settings, k, v) for k, v in default_keybinds.items()}
 
     def key_name_to_pygame(name):
-        """Convert keybind name to pygame key constant."""
+        """Convert keybind name to (pygame key constant, modifier) tuple.
+        Supports formats like 'ctrl+r', 'shift+r', 'r'."""
         name = name.strip()
+        mod = None
+        if "+" in name:
+            parts = name.split("+")
+            mod = parts[0].strip().lower()
+            name = parts[1].strip()
+        kc = None
         if name.lower() == "escape":
-            return pygame.K_ESCAPE
-        if name.lower() == "space":
-            return pygame.K_SPACE
-        if name.lower() in ("enter", "return"):
-            return pygame.K_RETURN
-        if name.lower() == "tab":
-            return pygame.K_TAB
-        if name.lower() == "backspace":
-            return pygame.K_BACKSPACE
-        if name.lower() in ("scroll_up", "scroll_down", "mouse1", "mouse2", "mouse3"):
-            return None
-        if len(name) == 1:
-            return pygame.key.key_code(name)
-        kname = f"K_{name}"
-        return getattr(pygame, kname, None)
+            kc = pygame.K_ESCAPE
+        elif name.lower() == "space":
+            kc = pygame.K_SPACE
+        elif name.lower() in ("enter", "return"):
+            kc = pygame.K_RETURN
+        elif name.lower() == "tab":
+            kc = pygame.K_TAB
+        elif name.lower() == "backspace":
+            kc = pygame.K_BACKSPACE
+        elif name.lower() in ("scroll_up", "scroll_down", "mouse1", "mouse2", "mouse3"):
+            kc = None
+        elif len(name) == 1:
+            kc = pygame.key.key_code(name)
+        else:
+            kc = getattr(pygame, f"K_{name}", None)
+        mod_map = {"ctrl": pygame.KMOD_CTRL, "shift": pygame.KMOD_SHIFT,
+                   "alt": pygame.KMOD_ALT, "meta": pygame.KMOD_GUI}
+        mod_val = mod_map.get(mod, 0) if mod else 0
+        if mod:
+            return (kc, mod_val)
+        return kc
 
     def is_shift_held():
         """Check if shift modifier is currently held."""
@@ -701,9 +772,13 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
 
     key_map = {}
     for action, name in keybinds.items():
-        kc = key_name_to_pygame(name)
-        if kc is not None:
-            key_map[kc] = action
+        result = key_name_to_pygame(name)
+        if result is not None:
+            if isinstance(result, tuple):
+                kc, mod_val = result
+                key_map[kc] = (action, mod_val)
+            else:
+                key_map[result] = (action, 0)
 
     screen.fill((30, 30, 30))
     try:
@@ -781,6 +856,12 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
     interacting = False
     interact_timer = 0
     INTERACT_SETTLE = 100
+    drag_offset_x = 0.0
+    drag_offset_y = 0.0
+    last_render_xmin = None
+    last_render_xmax = None
+    last_render_ymin = None
+    last_render_ymax = None
     _START_TIME = time.time()
 
     overlay = InfoOverlay()
@@ -812,11 +893,24 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     last_mouse_pos = event.pos
                     interacting = True
                     interact_timer = pygame.time.get_ticks()
+                    drag_offset_x = 0.0
+                    drag_offset_y = 0.0
+                    last_render_xmin = xmin
+                    last_render_xmax = xmax
+                    last_render_ymin = ymin
+                    last_render_ymax = ymax
+                    last_render_xmin = xmin
+                    last_render_xmax = xmax
+                    last_render_ymin = ymin
+                    last_render_ymax = ymax
 
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
                     _dbg(f"MOUSEBUTTONUP {event.pos} dragging=False")
                     dragging = False
+                    drag_offset_x = 0.0
+                    drag_offset_y = 0.0
+                    needs_render = True
 
             elif event.type == pygame.MOUSEMOTION:
                 if dragging:
@@ -831,7 +925,8 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     xmax -= dx * scale_x
                     ymin += dy * scale_y
                     ymax += dy * scale_y
-                    needs_render = True
+                    drag_offset_x += dx
+                    drag_offset_y += dy
                     interacting = True
                     interact_timer = pygame.time.get_ticks()
 
@@ -855,7 +950,12 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                 needs_render = True
 
             elif event.type == pygame.KEYDOWN:
-                action = key_map.get(event.key)
+                result = key_map.get(event.key)
+                if result is None:
+                    continue
+                action, mod_val = result
+                if mod_val != 0 and not bool(pygame.key.get_mods() & mod_val):
+                    continue
                 if action == "reset-view":
                     xmin, xmax = -2.5, 1.0
                     ymin, ymax = -1.5, 1.5
@@ -1013,6 +1113,8 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                 elif action == "rgb-b-down":
                     mult = 10.0 if is_shift_held() else 1.0
                     state["rgb_thetas"][2] = step_val(state["rgb_thetas"][2], -0.02, 0.0, 1.0, mult)
+                    _RENDER_CACHE.clear()
+                    needs_render = True
                 elif action == "quit":
                     running = False
 
@@ -1025,16 +1127,34 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
             interacting = True
             interact_timer = pygame.time.get_ticks()
             needs_render = True
+            drag_offset_x = 0.0
+            drag_offset_y = 0.0
 
         if needs_render:
             still_interacting = interacting and (pygame.time.get_ticks() - interact_timer < INTERACT_SETTLE)
+
             if still_interacting or dragging:
-                # Render at full resolution and iterations during drag for smooth panning
-                _t0 = time.perf_counter()
-                surface, _used_gpu = render_to_surface(
-                    width, height, xmin, xmax, ymin, ymax, state["max_iter"], state)
-                _t_render = time.perf_counter() - _t0
-                needs_render = True
+                if surface is not None and (abs(drag_offset_x) > 0.1 or abs(drag_offset_y) > 0.1):
+                    # Offset-blit existing surface + render only exposed edges
+                    screen.fill((30, 30, 30))
+                    screen.blit(surface, (int(drag_offset_x), int(drag_offset_y)))
+                    _t0 = time.perf_counter()
+                    _render_exposed_edges(screen, width, height, xmin, xmax,
+                                          ymin, ymax, state, drag_offset_x,
+                                          drag_offset_y)
+                    _t_render = time.perf_counter() - _t0
+                    needs_render = True
+                else:
+                    # No surface yet or negligible offset: full render
+                    _t0 = time.perf_counter()
+                    surface, _used_gpu = render_to_surface(
+                        width, height, xmin, xmax, ymin, ymax, state["max_iter"], state)
+                    _t_render = time.perf_counter() - _t0
+                    last_render_xmin = xmin
+                    last_render_xmax = xmax
+                    last_render_ymin = ymin
+                    last_render_ymax = ymax
+                    needs_render = True
             else:
                 interacting = False
                 _t0 = time.perf_counter()
@@ -1042,10 +1162,21 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     width, height, xmin, xmax, ymin, ymax, state["max_iter"], state)
                 _t_render = time.perf_counter() - _t0
                 needs_render = False
+                last_render_xmin = xmin
+                last_render_xmax = xmax
+                last_render_ymin = ymin
+                last_render_ymax = ymax
 
         backend = "CUDA" if (state["use_gpu"] and _CUDA_AVAILABLE) else "CPU"
         _t_blit0 = time.perf_counter()
-        screen.blit(surface, (0, 0))
+        if not needs_render:
+            screen.blit(surface, (0, 0))
+        elif not dragging:
+            screen.blit(surface, (0, 0))
+        elif abs(drag_offset_x) > 0.1 or abs(drag_offset_y) > 0.1:
+            screen.blit(surface, (int(drag_offset_x), int(drag_offset_y)))
+        else:
+            screen.blit(surface, (0, 0))
         _t_blit = time.perf_counter() - _t_blit0
         if overlay.active:
             overlay.draw(screen, overlay_font, state, keybinds)
