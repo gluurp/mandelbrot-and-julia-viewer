@@ -377,7 +377,7 @@ def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light,
 
 @njit
 def smooth_iter(c, maxiter, stripe_s, stripe_sig, use_julia=False, julia_c_re=0.0, julia_c_im=0.0):
-    esc_radius_2 = 4.0
+    esc_radius_2 = 10.0**10
     if use_julia:
         z = c
         c_const = complex(julia_c_re, julia_c_im)
@@ -442,7 +442,7 @@ if cuda is not None:
             cim     = y_min + (y_start + y) / (1 if 1 > total_h - 1 else total_h - 1) * (y_max - y_min)
             ncol = colortable.shape[0] - 1
             # Inline smooth_iter
-            esc_radius_2 = 4.0
+            esc_radius_2 = 10.0**10
             if use_julia:
                 zr, zi = creal, cim
             else:
