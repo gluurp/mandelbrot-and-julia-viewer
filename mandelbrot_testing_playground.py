@@ -1268,6 +1268,9 @@ class MenuOverlay:
 
         menu_w = label_w + val_w + 2 * (btn_w + s(5)) + 4 * pad
         menu_h = (len(rows) + len(toggles) + 6) * row_h + 2 * pad
+        max_menu_h = sh - 2 * pad
+        if menu_h > max_menu_h:
+            menu_h = max_menu_h
         menu_x = sw - menu_w - pad
         menu_y = pad
 
@@ -1279,6 +1282,8 @@ class MenuOverlay:
         ry = pad
 
         for key, label, val, is_int in rows:
+            if ry + row_h > menu_h - pad:
+                break
             lt = scaled_font.render(label, True, (220, 220, 220))
             surf.blit(lt, (pad, ry + (btn_h - th) // 2))
             if is_int:
@@ -1305,6 +1310,8 @@ class MenuOverlay:
             ry += row_h
 
         for key, label, val in toggles:
+            if ry + row_h > menu_h - pad:
+                break
             on_color = (80, 180, 80) if val else (180, 80, 80)
             pygame.draw.rect(surf, on_color, (pad, ry, act_w, btn_h), 0, s(3))
             pygame.draw.rect(surf, (200, 200, 200), (pad, ry, act_w, btn_h), s(1))
@@ -1322,6 +1329,8 @@ class MenuOverlay:
             ("cycle-palette", f"palette: {palette_name} [TAB]", (60, 60, 60)),
             ("show-keybinds", "show keybinds [K]", (50, 50, 70)),
         ]:
+            if ry + row_h > menu_h - pad:
+                break
             pygame.draw.rect(surf, btn_color, (pad, ry, act_w, btn_h), 0, s(3))
             pygame.draw.rect(surf, (200, 200, 200), (pad, ry, act_w, btn_h), s(1))
             bt = scaled_font.render(btn_label, True, (255, 255, 255))
@@ -1345,6 +1354,10 @@ class MenuOverlay:
         items = sorted(keybinds.items())
         panel_w = line_w + 2 * pad
         panel_h = len(items) * row_h + 2 * pad
+        sw, sh = screen.get_size()
+        max_panel_h = sh - 2 * pad
+        if panel_h > max_panel_h:
+            panel_h = max_panel_h
         panel_x = pad
         panel_y = pad
 
@@ -1354,6 +1367,8 @@ class MenuOverlay:
 
         for i, (action, kc) in enumerate(items):
             ky = pad + i * row_h
+            if ky + row_h > panel_h:
+                break
             label = f"[{kc.upper()}] {action.replace('-', ' ')}"
             t = font.render(label, True, (200, 200, 255))
             surf.blit(t, (pad, ky))
