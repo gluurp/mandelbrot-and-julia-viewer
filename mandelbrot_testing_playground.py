@@ -326,19 +326,13 @@ def blinn_phong(normal, light):
 @njit
 def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light, smooth=True):
     ncol = colortable.shape[0] - 1
+    cniter = math.sqrt(niter) % ncycle / ncycle
     if smooth:
-        cniter = math.sqrt(niter) % ncycle / ncycle
-        col_i = round(cniter * ncol) % ncol
+        col_i = round(cniter * ncol)
         nshader_aa = 0.0
     else:
-        sqrt_n = math.sqrt(niter)
-        floor_n = float(int(sqrt_n))
-        cniter = floor_n / ncycle
         col_i = round(cniter * ncol) % ncol
-        frac = sqrt_n - floor_n
-        aa_factor = 1.0 / (1.0 + math.exp(-30 * (frac - 0.5)))
-        col_i_next = (col_i + 1) % ncol
-        nshader_aa = aa_factor
+        nshader_aa = 0.0
 
     bright = blinn_phong(normal, light)
     dem = 1e-10 if 1e-10 > dem else dem
@@ -367,13 +361,6 @@ def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light,
     r = overlay(colortable[col_i, 0], bright, 1)
     g = overlay(colortable[col_i, 1], bright, 1)
     b = overlay(colortable[col_i, 2], bright, 1)
-    if nshader_aa > 0.0:
-        r_aa = overlay(colortable[col_i_next, 0], bright, 1)
-        g_aa = overlay(colortable[col_i_next, 1], bright, 1)
-        b_aa = overlay(colortable[col_i_next, 2], bright, 1)
-        r = r * (1 - nshader_aa) + r_aa * nshader_aa
-        g = g * (1 - nshader_aa) + g_aa * nshader_aa
-        b = b * (1 - nshader_aa) + b_aa * nshader_aa
 
     return (_clamp01(r), _clamp01(g), _clamp01(b))
 
@@ -496,18 +483,11 @@ if cuda is not None:
                     stripe_a = stripe_a * stripe_sig + stripe_t * (1 - stripe_sig)
 
             if niter > 0:
+                cniter = math.sqrt(niter) % ncycle / ncycle
                 if smooth:
-                    cniter = math.sqrt(niter) % ncycle / ncycle
-                    col_i = int(round(cniter * ncol)) % ncol
-                    nshader_aa = 0.0
+                    col_i = int(round(cniter * ncol))
                 else:
-                    sqrt_n = math.sqrt(niter)
-                    floor_n = float(int(sqrt_n))
-                    cniter = floor_n / ncycle
                     col_i = int(round(cniter * ncol)) % ncol
-                    frac = sqrt_n - floor_n
-                    nshader_aa = 1.0 / (1.0 + math.exp(-30 * (frac - 0.5)))
-                    col_i_next = (col_i + 1) % ncol
 
                 # Inline blinn_phong
                 mag = math.sqrt(normal_re * normal_re + normal_im * normal_im)
@@ -561,13 +541,6 @@ if cuda is not None:
                 cr = colortable[col_i, 0]
                 cg = colortable[col_i, 1]
                 cb = colortable[col_i, 2]
-                if nshader_aa > 0.0:
-                    cr_next = colortable[col_i_next, 0]
-                    cg_next = colortable[col_i_next, 1]
-                    cb_next = colortable[col_i_next, 2]
-                    cr = cr * (1 - nshader_aa) + cr_next * nshader_aa
-                    cg = cg * (1 - nshader_aa) + cg_next * nshader_aa
-                    cb = cb * (1 - nshader_aa) + cb_next * nshader_aa
                 if 2 * bright < 1:
                     mat[y, x, 0] = 2 * cr * bright
                 else:
@@ -766,23 +739,14 @@ def _liang_barsky_clip(x0, y0, x1, y1, xmin, ymin, xmax, ymax):
 def _orbit_pixel_color(i, smooth, colortable, ncycle):
     """Map orbit iteration index to a color using the same colormap as the graph."""
     ncol = colortable.shape[0] - 1
+    cniter = math.sqrt(i + 1) % ncycle / ncycle
     if smooth:
-        cniter = math.sqrt(i + 1) % ncycle / ncycle
-        col_i = round(cniter * ncol) % ncol
-        r = colortable[col_i, 0]
-        g = colortable[col_i, 1]
-        b = colortable[col_i, 2]
+        col_i = round(cniter * ncol)
     else:
-        sqrt_n = math.sqrt(i + 1)
-        floor_n = float(int(sqrt_n))
-        cniter = floor_n / ncycle
         col_i = round(cniter * ncol) % ncol
-        frac = sqrt_n - floor_n
-        aa_factor = 1.0 / (1.0 + math.exp(-30 * (frac - 0.5)))
-        col_i_next = (col_i + 1) % ncol
-        r = colortable[col_i, 0] * (1 - aa_factor) + colortable[col_i_next, 0] * aa_factor
-        g = colortable[col_i, 1] * (1 - aa_factor) + colortable[col_i_next, 1] * aa_factor
-        b = colortable[col_i, 2] * (1 - aa_factor) + colortable[col_i_next, 2] * aa_factor
+    r = colortable[col_i, 0]
+    g = colortable[col_i, 1]
+    b = colortable[col_i, 2]
     return (int(r * 255), int(g * 255), int(b * 255))
 
 
