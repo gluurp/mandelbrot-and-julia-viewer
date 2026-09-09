@@ -1561,6 +1561,7 @@ class MenuOverlay:
             ("c_color_g",           "c_g",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[1], False),
             ("c_color_b",           "c_b",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[2], False),
             ("set_blend",           "blend",            state.get("set_blend", 0.0),        False),
+            ("grid_opacity",        "grid_opac",        state.get("grid_opacity", 0.3),     False),
         ]
 
         toggles = [
@@ -1573,7 +1574,6 @@ class MenuOverlay:
             ("show_orbit_lines_j",  "ju lines",    state.get("show_orbit_lines_j", True)),
             ("show_c_point",        "c point",     state.get("show_c_point", True)),
             ("show_grid",           "grid",        state.get("show_grid", True)),
-            ("grid_opacity",        "grid_opac",   state.get("grid_opacity", 0.3), False),
         ]
 
         palette_idx = state.get("palette_index", 0)

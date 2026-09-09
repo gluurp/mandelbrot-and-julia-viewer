@@ -593,6 +593,29 @@ test("orbit_pixel_color smooth: RGB in [0,255]", 0 <= r <= 255 and 0 <= g <= 255
 r, g, b = mb._orbit_pixel_color(5, False, colortable, ncycle)
 test("orbit_pixel_color discrete: RGB in [0,255]", 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255)
 
+# Disabled orbits must also hide their draggable starting-point marker
+original_compute_orbit = mb.compute_orbit
+original_circle = mb.pygame.draw.circle
+draw_calls = []
+mb.compute_orbit = lambda *args, **kwargs: np.array([[0.0, 0.0]])
+mb.pygame.draw.circle = lambda *args: draw_calls.append(args)
+try:
+    screen = pygame.Surface((100, 100))
+    hidden_state = build_state(show_orbits_m=False, show_orbits_j=True,
+                               show_c_point=False, set_blend=0.0)
+    mb._draw_orbit(screen, hidden_state, -2.0, 2.0, -2.0, 2.0, 100, 100)
+    test("Disabled orbit hides starting-point marker", draw_calls == [])
+
+    draw_calls.clear()
+    visible_state = build_state(show_orbits_m=True, show_orbits_j=False,
+                                show_c_point=False, set_blend=0.0)
+    mb._draw_orbit(screen, visible_state, -2.0, 2.0, -2.0, 2.0, 100, 100)
+    test("Enabled orbit shows starting-point marker",
+         any(call[1] == (255, 255, 0) for call in draw_calls))
+finally:
+    mb.compute_orbit = original_compute_orbit
+    mb.pygame.draw.circle = original_circle
+
 # ===========================================================================
 # 21. Settings persistence (load/save round-trip)
 # ===========================================================================
