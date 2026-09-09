@@ -1,0 +1,230 @@
+Green point changes Julia set starting constant c
+
+--- Visualization and audio only stuff ---
+Blue point changes Mandelbrot set starting constant z
+Red point changes Julia set starting constant z 
+
+--- S ---
+0: Off
+1: Mandelbrot x values
+2: Mandelbrot y values
+3: Mandelbrot x & y values
+4: Julia x values
+5: Julia y values
+6: Julia x & y values
+7: All points x & y value
+
+--- s ---
+0: None
+1: Both
+2: Mandelbrot
+3: Julia
+
+--- p ---
+0: None
+1: Both
+2: Mandelbrot
+3: Julia
+
+--- L_M ---
+Mandelbrot set:
+0: Points only
+1: Draw lines
+
+--- L_J ---
+Julia sets:
+0: Points only 
+1: Draw lines
+
+--- I ---
+0: No initial point (line from 0th iteration to 1st iteration)
+1: Yes initial point
+
+--- n_max ---
+Sets maximum iterations
+
+--- m_max ---
+Sets maximum points
+
+--- A_s ---
+How many digits of accuracy for how close a point has to be to its neighbors to be considered a discrete periodic point (eg 1 is 0.1)
+
+--- A_sp ---
+How many digits of accuracy for how flat slope has to be for it to be considered possibly periodic or Siegel disk (eg 1 is 0.1)
+
+--- T_Ms and T_Js ---
+0: Periodic
+1: Siegel
+2: Collapsing
+
+
+
+
+-- Text
+
+- Sliders
+S = 0  [0 to 7, step 1]
+s = 1  [0 to 3, step 1]
+p = 1  [0 to 3, step 1]
+L_M = 0  [0 to 1, step 1]
+L_J = 1  [0 to 1, step 1]
+I = 0  [0 to 1, step 1]
+n_max = 50  [0 to 200, step 1]
+m_max = 750  [0 to 750, step 1]
+A_s = 5  [1 to 12, step 1]
+A_sp = 5  [1 to 6, step 1]
+K_max = 30  [10 to 60, step 1]
+
+- Points THESE ARE ARIBITRARY, THESE ARE JUST PLACEHOLDERS AND ARE CUSTOMIZABLE
+s_M = (0.018, -0.63)
+s_J = (0.153, 0.473)
+c_J = (0.394, 0.338)
+
+- Mandelbrot
+z_M(0, x, y) = (0, 0)
+z_M(n, x, y) = ((z_M(n-1, x, y).x^2 - z_M(n-1, x, y).y^2 + x), (2*z_M(n-1, x, y).x * z_M(n-1, x, y).y + y))
+z_M(n_max, x, y).x^2 + z_M(n_max, x, y).y^2 <= 4  when s=1 or s=2
+
+- Julia
+z_J(0, x, y) = (x, y)
+z_J(n, x, y) = ((z_J(n-1, x, y).x^2 - z_J(n-1, x, y).y^2 + c_J.x), (2*z_J(n-1, x, y).x * z_J(n-1, x, y).y + c_J.y))
+z_J(n_max, x, y).x^2 + z_J(n_max, x, y).y^2 <= 4  when s=1 or s=3
+
+- Helpers
+m_L = [1, 2, 3, ..., m_max]
+K_L = [1, 2, 3, ..., K_max]
+P_zM = z_M(m_L, s_M.x, s_M.y)
+P_zJ = z_J(m_L, s_J.x, s_J.y)
+P_M = if P_zM.x[1] + P_zM.y[1] = 0 then P_zM else join([(0,0)], P_zM)
+P_J = if P_zJ.x[1] + P_zJ.y[1] = 0 then P_zJ else join([(0,0)], P_zJ)
+P_pMI = if (p=1 or p=2) and L_M=0 then if I=0 then unique(P_M[2...]) else unique(P_M)
+P_pJI = if (p=1 or p=3) and L_J=0 then if I=0 then unique(P_J[2...]) else unique(P_J)
+P_lMI = if (p=1 or p=2) and L_M=1 then if I=0 then unique(P_M[2...]) else unique(P_M)
+P_lJI = if (p=1 or p=3) and L_J=1 then if I=0 then unique(P_J[2...]) else unique(P_J)
+P_Mi = P_M[2...]
+P_Ji = P_J[2...]
+P_MSi = unique(join(P_Mi.x, P_Mi.y))
+P_JSi = unique(join(P_Ji.x, P_Ji.y))
+P_Bi = join(P_MSi, P_JSi)
+
+- Audio
+tone(if S=1 then 880*P_Mi.x + 880 else 0)
+tone(if S=2 then 880*P_Mi.y + 880 else 0)
+tone(if S=3 then 880*P_MSi + 880 else 0)
+tone(if S=4 then 880*P_Ji.x + 880 else 0)
+tone(if S=5 then 880*P_Ji.y + 880 else 0)
+tone(if S=6 then 880*P_JSi + 880 else 0)
+tone(if S=7 then 880*P_Bi + 880 else 0)
+
+- Periodic Cycle
+C_MEL = sqrt((P_Mi.x[length(P_Mi)] - P_Mi.x[length(P_Mi)-K_L])^2 + (P_Mi.y[length(P_Mi)] - P_Mi.y[length(P_Mi)-K_L])^2)
+C_Mc = K_L[where C_MEL = min(C_MEL)][1]
+C_ML = if p=1 or p=2 then P_Mi[length(P_Mi)-C_Mc+1 ... length(P_Mi)]
+C_JEL = sqrt((P_Ji.x[length(P_Ji)] - P_Ji.x[length(P_Ji)-K_L])^2 + (P_Ji.y[length(P_Ji)] - P_Ji.y[length(P_Ji)-K_L])^2)
+C_Jc = K_L[where C_JEL = min(C_JEL)][1]
+C_JL = if p=1 or p=3 then P_Ji[length(P_Ji)-C_Jc+1 ... length(P_Ji)] if p=1 or p=3
+
+- Fixed Points
+Z_Mreal = sqrt((sqrt((1-4*s_M.x)^2 + (-4*s_M.y)^2) + (1-4*s_M.x)) / 2)
+Z_Mimag = (sign(-4*s_M.y) * sqrt(max(0, (sqrt((1-4*s_M.x)^2 + (-4*s_M.y)^2) - (1-4*s_M.x)) / 2))) / 2
+Z_Mpos = ((1 + Z_Mreal)/2, Z_Mimag)
+Z_Mneg = ((1 - Z_Mreal)/2, -Z_Mimag)
+if distance(mean(C_ML), Z_Mpos) < distance(mean(C_ML), Z_Mneg) then if min(C_MEL) > 10^-A_s then if T_Ms=1 or T_Ms=2 then Z_Mpos
+if distance(mean(C_ML), Z_Mneg) < distance(mean(C_ML), Z_Mpos) then if min(C_MEL) > 10^-A_s then if T_Ms=1 or T_Ms=2 then Z_Mneg
+
+Z_Jreal = sqrt((sqrt((1-4*s_J.x)^2 + (-4*s_J.y)^2) + (1-4*s_J.x)) / 2)
+Z_Jimag = (sign(-4*s_J.y) * sqrt(max(0, (sqrt((1-4*s_J.x)^2 + (-4*s_J.y)^2) - (1-4*s_J.x)) / 2))) / 2
+Z_Jpos = ((1 + Z_Jreal)/2, Z_Jimag)
+Z_Jneg = ((1 - Z_Jreal)/2, -Z_Jimag)
+if distance(mean(C_JL), Z_Jpos) < distance(mean(C_JL), Z_Jneg) then if min(C_JEL) > 10^-A_s then if T_Js=1 or T_Js=2 then Z_Jpos
+if distance(mean(C_JL), Z_Jneg) < distance(mean(C_JL), Z_Jpos) then if min(C_JEL) > 10^-A_s then if T_Js=1 or T_Js=2 then Z_Jneg
+
+min(C_MEL)
+min(C_JEL)
+
+r_M = sqrt((P_Mi.x - Z_Mneg.x)^2 + (P_Mi.y - Z_Mneg.y)^2)
+i_M = [1, 2, 3, ..., length(r_M)]
+N_Mslope = ((mean(i_M * r_M) - mean(i_M) * mean(r_M)) * length(r_M)) / ((mean(i_M^2) - mean(i_M)^2) * mean(r_M))
+
+r_J = sqrt((P_Ji.x - Z_Jneg.x)^2 + (P_Ji.y - Z_Jneg.y)^2)
+i_J = [1, 2, 3, ..., length(r_J)]
+N_Jslope = ((mean(i_J * r_J) - mean(i_J) * mean(r_J)) * length(r_J)) / ((mean(i_J^2) - mean(i_J)^2) * mean(r_J))
+
+T_Ms = if min(C_MEL) > 10^-A_s then if |N_Mslope| < 10^-A_sp then 1 else if N_Mslope < -10^-A_sp then 2 else 0 else 0
+T_Js = if min(C_JEL) > 10^-A_s then if |N_Jslope| < 10^-A_sp then 1 else if N_Jslope < -10^-A_sp then 2 else 0 else 0
+
+
+-- LaTeX
+
+- Mandelbrot
+z_{M}(0,x,y)=(0,0)
+z_{M}(n,x,y)=(((z_{M}((n-1),x,y).x^{2})-(z_{M}((n-1),x,y).y^{2})+x),((2z_{M}((n-1),x,y).x)(z_{M}((n-1),x,y).y)+y))
+((z_{M}(n_{max},x,y)).x^{2})+((z_{M}(n_{max},x,y)).y^{2})\le4\{s=1 or s=2\}
+
+- Julia
+z_{J}(0,x,y)=(x,y)
+z_{J}(n,x,y)=(((((z_{J}((n-1),x,y)).x^{2})-(z_{J}((n-1),x,y)).y^{2})+c_{J}.x),(((2z_{J}((n-1),x,y).x)((z_{J}((n-1),x,y)).y))+c_{J}.y))
+(((z_{J}(n_{max},x,y)).x^{2}))+((z_{J}(n_{max},x,y)).y^{2})\le4\{s=1 or s=3\}
+
+- Helpers
+m_{L}=[1,...,m_{max}]
+K_{L}=[1,...,K_{max}]
+P_{zM}=z_{M}(m_{L},s_{M}.x,s_{M}.y)
+P_{zJ}=z_{J}(m_{L},s_{J}.x,s_{J}.y)
+P_{M}=\{P_{zM}.x[1]+P_{zM}.y[1]=0:P_{zM},join([(0,0)],P_{zM})\}
+P_{J}=\{P_{zJ}.x[1]+P_{zJ}.y[1]=0:P_{zJ},join([(0,0)],P_{zJ})\}
+P_{pMI}=\{(p=1 or p=2) and L_{M}=0:\{I=0:unique(P_{M}[2...]),I=1:unique(P_{M})\}\}
+P_{pJI}=\{(p=1 or p=3) and L_{J}=0:\{I=0:unique(P_{J}[2...]),I=1:unique(P_{J})\}\}
+P_{lMI}=\{(p=1 or p=2) and L_{M}=1:\{I=0:unique(P_{M}[2...]),I=1:unique(P_{M})\}\}
+P_{lJI}=\{(p=1 or p=3) and L_{J}=1:\{I=0:unique(P_{J}[2...]),I=1:unique(P_{J})\}\}
+P_{Mi}=P_{M}[2...]
+P_{Ji}=P_{J}[2...]
+P_{MSi}=unique(join(P_{Mi}.x,P_{Mi}.y))
+P_{JSi}=unique(join(P_{Ji}.x,P_{Ji}.y))
+P_{Bi}=join(P_{MSi},P_{JSi})
+
+- Audio
+tone(\{S=1:1,0\}(880P_{Mi}.x+880))
+tone(\{S=2:1,0\}(880P_{Mi}.y+880))
+tone(\{S=3:1,0\}(880P_{MSi}+880))
+tone(\{S=4:1,0\}(880P_{Ji}.x+880))
+tone(\{S=5:1,0\}(880P_{Ji}.y+880))
+tone(\{S=6:1,0\}(880P_{JSi}+880))
+tone(\{S=7:1,0\}(880P_{Bi}+880))
+
+- Periodic Cycle
+C_{MEL}=\sqrt{((P_{Mi}.x[length(P_{Mi})])-(P_{Mi}.x[length(P_{Mi})-K_{L}]))^{2}+((P_{Mi}.y[length(P_{Mi})])-(P_{Mi}.y[length(P_{Mi})-K_{L}]))^{2}}
+C_{Mc}=K_{L}[C_{MEL}=min(C_{MEL})][1]
+C_{ML}=\{p=1 or p=2:P_{Mi}[length(P_{Mi})-C_{Mc}+1...length(P_{Mi})]\}
+C_{JEL}=\sqrt{((P_{Ji}.x[length(P_{Ji})])-(P_{Ji}.x[length(P_{Ji})-K_{L}]))^{2}+((P_{Ji}.y[length(P_{Ji})])-(P_{Ji}.y[length(P_{Ji})-K_{L}]))^{2}}
+C_{Jc}=K_{L}[C_{JEL}=min(C_{JEL})][1]
+C_{JL}=\{p=1 or p=3:P_{Ji}[length(P_{Ji})-C_{Jc}+1...length(P_{Ji})]\{p=1 or p=3\}\}
+
+- Fixed Points
+Z_{Mreal}=\sqrt{(\sqrt{(1-4s_{M}.x)^{2}+(-4s_{M}.y)^{2}}+(1-4s_{M}.x))/2}
+Z_{Mimag}=(sign(-4s_{M}.y)\sqrt{max(0,(\sqrt{(1-4s_{M}.x)^{2}+(-4s_{M}.y)^{2}}-(1-4s_{M}.x))/2)})/2
+Z_{Mpos}=((1+Z_{Mreal})/2,Z_{Mimag})
+Z_{Mneg}=((1-Z_{Mreal})/2,-Z_{Mimag})
+\{distance(mean(C_{ML}),Z_{Mpos})<distance(mean(C_{ML}),Z_{Mneg}):\{min(C_{MEL})>10^{-A_{s}}:\{T_{Ms}=1orT_{Ms}=2:Z_{Mpos}\}\}\}
+\{distance(mean(C_{ML}),Z_{Mneg})<distance(mean(C_{ML}),Z_{Mpos}):\{min(C_{MEL})>10^{-A_{s}}:\{T_{Ms}=1orT_{Ms}=2:Z_{Mneg}\}\}\}
+
+Z_{Jreal}=\sqrt{(\sqrt{(1-4s_{J}.x)^{2}+(-4s_{J}.y)^{2}}+(1-4s_{J}.x))/2}
+Z_{Jimag}=(sign(-4s_{J}.y)\sqrt{max(0,(\sqrt{(1-4s_{J}.x)^{2}+(-4s_{J}.y)^{2}}-(1-4s_{J}.x))/2)})/2
+Z_{Jpos}=((1+Z_{Jreal})/2,Z_{Jimag})
+Z_{Jneg}=((1-Z_{Jreal})/2,-Z_{Jimag})
+\{distance(mean(C_{JL}),Z_{Jpos})<distance(mean(C_{JL}),Z_{Jneg}):\{min(C_{JEL})>10^{-A_{s}}:\{T_{Js}=1orT_{Js}=2:Z_{Jpos}\}\}\}
+\{distance(mean(C_{JL}),Z_{Jneg})<distance(mean(C_{JL}),Z_{Jpos}):\{min(C_{JEL})>10^{-A_{s}}:\{T_{Js}=1orT_{Js}=2:Z_{Jneg}\}\}\}
+
+min(C_{MEL})
+min(C_{JEL})
+
+r_{M}=\sqrt{(P_{Mi}.x-Z_{Mneg}.x)^{2}+(P_{Mi}.y-Z_{Mneg}.y)^{2}}
+i_{M}=[1,...,length(r_{M})]
+N_{Mslope}=((mean(i_{M}r_{M})-mean(i_{M})mean(r_{M}))length(r_{M}))/((mean(i_{M}^{2})-mean(i_{M})^{2})mean(r_{M}))
+
+r_{J}=\sqrt{(P_{Ji}.x-Z_{Jneg}.x)^{2}+(P_{Ji}.y-Z_{Jneg}.y)^{2}}
+i_{J}=[1,...,length(r_{J})]
+N_{Jslope}=((mean(i_{J}r_{J})-mean(i_{J})mean(r_{J}))length(r_{J}))/((mean(i_{J}^{2})-mean(i_{J})^{2})mean(r_{J}))
+
+T_{Ms}=\{min(C_{MEL})>10^{-A_{s}}:\{|N_{Mslope}|<10^{-A_{sp}}:1,\{N_{Mslope}<-10^{-A_{sp}}:2,0\}\},0\}
+T_{Js}=\{min(C_{JEL})>10^{-A_{s}}:\{|N_{Jslope}|<10^{-A_{sp}}:1,\{N_{Jslope}<-10^{-A_{sp}}:2,0\}\},0\}
