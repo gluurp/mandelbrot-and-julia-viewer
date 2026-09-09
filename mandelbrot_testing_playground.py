@@ -337,16 +337,11 @@ def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light,
     if smooth:
         cniter = math.sqrt(niter) % ncycle / ncycle
         col_i = round(cniter * ncol)
-        nshader_aa = 0.0
     else:
-        sqrt_n = math.sqrt(niter)
-        floor_n = float(int(sqrt_n))
+        floor_n = float(int(math.sqrt(niter)))
         cniter = floor_n / ncycle
         col_i = round(cniter * ncol) % ncol
-        frac = sqrt_n - floor_n
-        aa_factor = 1.0 / (1.0 + math.exp(-30 * (frac - 0.5)))
-        col_i_next = (col_i + 1) % ncol
-        nshader_aa = aa_factor
+    nshader_aa = 0.0
 
     bright = blinn_phong(normal, light)
     dem = 1e-10 if 1e-10 > dem else dem
@@ -361,6 +356,7 @@ def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light,
     if step_s > 0:
         n_steps = 1.0 if 1.0 > step_s else step_s
         quantized = math.floor(cniter * n_steps) / n_steps
+        col_i = round(quantized * ncol)
         x = (cniter - quantized) * n_steps
         light_step = 6 * (1 - x ** 5 - (1 - x) ** 100) / 10
         x2 = (cniter - quantized) * n_steps * 8
@@ -375,13 +371,6 @@ def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light,
     r = overlay(colortable[col_i, 0], bright, 1)
     g = overlay(colortable[col_i, 1], bright, 1)
     b = overlay(colortable[col_i, 2], bright, 1)
-    if nshader_aa > 0.0:
-        r_aa = overlay(colortable[col_i_next, 0], bright, 1)
-        g_aa = overlay(colortable[col_i_next, 1], bright, 1)
-        b_aa = overlay(colortable[col_i_next, 2], bright, 1)
-        r = r * (1 - nshader_aa) + r_aa * nshader_aa
-        g = g * (1 - nshader_aa) + g_aa * nshader_aa
-        b = b * (1 - nshader_aa) + b_aa * nshader_aa
 
     return (_clamp01(r), _clamp01(g), _clamp01(b))
 
@@ -507,15 +496,11 @@ if cuda is not None:
                 if smooth:
                     cniter = math.sqrt(niter) % ncycle / ncycle
                     col_i = int(round(cniter * ncol))
-                    nshader_aa = 0.0
                 else:
-                    sqrt_n = math.sqrt(niter)
-                    floor_n = float(int(sqrt_n))
+                    floor_n = float(int(math.sqrt(niter)))
                     cniter = floor_n / ncycle
                     col_i = int(round(cniter * ncol)) % ncol
-                    frac = sqrt_n - floor_n
-                    nshader_aa = 1.0 / (1.0 + math.exp(-30 * (frac - 0.5)))
-                    col_i_next = (col_i + 1) % ncol
+                nshader_aa = 0.0
 
                 # Inline blinn_phong
                 mag = math.sqrt(normal_re * normal_re + normal_im * normal_im)
@@ -548,6 +533,7 @@ if cuda is not None:
                 if step_s > 0:
                     n_steps = 1.0 if 1.0 > step_s else step_s
                     quantized = math.floor(cniter * n_steps) / n_steps
+                    col_i = int(round(quantized * ncol))
                     x2 = (cniter - quantized) * n_steps
                     light_step = 6 * (1 - math.pow(x2, 5) - math.pow(1 - x2, 100)) / 10
                     x8 = (cniter - quantized) * n_steps * 8
@@ -569,13 +555,6 @@ if cuda is not None:
                 cr = colortable[col_i, 0]
                 cg = colortable[col_i, 1]
                 cb = colortable[col_i, 2]
-                if nshader_aa > 0.0:
-                    cr_next = colortable[col_i_next, 0]
-                    cg_next = colortable[col_i_next, 1]
-                    cb_next = colortable[col_i_next, 2]
-                    cr = cr * (1 - nshader_aa) + cr_next * nshader_aa
-                    cg = cg * (1 - nshader_aa) + cg_next * nshader_aa
-                    cb = cb * (1 - nshader_aa) + cb_next * nshader_aa
                 if 2 * bright < 1:
                     mat[y, x, 0] = 2 * cr * bright
                 else:
