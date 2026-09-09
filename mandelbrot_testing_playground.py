@@ -51,7 +51,13 @@ DEFAULT_KEYBINDS = {
     "blend-up": "s",
     "blend-down": "a",
     "toggle-orbits": "space",
+    "toggle-orbits-m": "ctrl+space",
+    "toggle-orbits-j": "alt+space",
+    "toggle-orbit-lines-m": "l",
+    "toggle-orbit-lines-j": "shift+l",
+    "toggle-c-point": "c",
     "reset-orbit-point": "i",
+    "reset-orbit-points": "shift+i",
     "swap-orbit-point": "x",
     "cycle-palette": "tab",
     "reset-settings": "backspace",
@@ -92,6 +98,14 @@ DEFAULT_ORBIT_POINT_M   = [0.018, -0.63]  # s_M from math.txt
 DEFAULT_ORBIT_POINT_J   = [0.153, 0.473]  # s_J from math.txt
 DEFAULT_SET_BLEND       = 0.0             # 0=MB only, 1=Julia only
 DEFAULT_ORBIT_POINT     = DEFAULT_ORBIT_POINT_M  # back-compat
+DEFAULT_SHOW_C_POINT    = True
+DEFAULT_C_POINT_SIZE    = 5
+DEFAULT_C_POINT_COLOR   = [0, 200, 0]     # green
+DEFAULT_ORBIT_RGB_THETAS = [0.0, 0.167, 0.95]  # orbit color palette (fire)
+DEFAULT_ORBIT_LINE_M    = True            # L_M from math.txt
+DEFAULT_ORBIT_LINE_J    = True            # L_J from math.txt
+DEFAULT_SHOW_ORBITS_M   = True
+DEFAULT_SHOW_ORBITS_J   = True
 NCOL                    = 2 ** 12
 
 COLOR_THETAS = [
@@ -313,7 +327,7 @@ def blinn_phong(normal, light):
 def color_pixel(niter, stripe_a, step_s, dem, normal, colortable, ncycle, light, smooth=True):
     ncol = colortable.shape[0] - 1
     if smooth:
-        cniter = math.sqrt(niter) / ncycle
+        cniter = math.sqrt(niter) % ncycle / ncycle
         col_i = round(cniter * ncol) % ncol
         nshader_aa = 0.0
     else:
@@ -483,7 +497,7 @@ if cuda is not None:
 
             if niter > 0:
                 if smooth:
-                    cniter = math.sqrt(niter) / ncycle
+                    cniter = math.sqrt(niter) % ncycle / ncycle
                     col_i = int(round(cniter * ncol)) % ncol
                     nshader_aa = 0.0
                 else:
@@ -571,11 +585,12 @@ else:
 
 
 
-def build_render_params(state, maxiter=None, is_julia=False):
+def build_render_params(state, maxiter=None, use_julia=False):
     """Build compute_image params for a single set mode.
 
-    Pass is_julia=True to get Julia params, is_julia=False for Mandelbrot.
-    The blending of both sets is handled by render_to_surface/compute_image_blend.
+    Pass use_julia=True to get Julia params (renders z^2 + c_J where c_J = state['julia_c']).
+    Pass use_julia=False for Mandelbrot params (each pixel is c).
+    The blending of both sets is handled by render_to_surface.
     """
     rgb_thetas = list(state["rgb_thetas"])
     phase = state["phase"]
@@ -590,12 +605,7 @@ def build_render_params(state, maxiter=None, is_julia=False):
         state["k_specular"],
         state["shininess"],
     ], dtype=np.float64)
-    if state.get("is_julia", is_julia) or state.get("set_blend", 0.0) >= 1.0:
-        use_julia = True
-        julia_c = state.get("julia_c", DEFAULT_JULIA_C)
-    else:
-        use_julia = False
-        julia_c = state.get("julia_c", DEFAULT_JULIA_C)
+    julia_c = state.get("julia_c", DEFAULT_JULIA_C)
     return {
         "colortable": colortable,
         "ncy": math.sqrt(maxiter) if maxiter else math.sqrt(DEFAULT_NCYCLE),
@@ -609,6 +619,7 @@ def build_render_params(state, maxiter=None, is_julia=False):
         "use_julia": use_julia,
         "julia_c_re": julia_c[0],
         "julia_c_im": julia_c[1],
+        "set_blend": state.get("set_blend", 0.0),
     }
 
 
@@ -756,7 +767,7 @@ def _orbit_pixel_color(i, smooth, colortable, ncycle):
     """Map orbit iteration index to a color using the same colormap as the graph."""
     ncol = colortable.shape[0] - 1
     if smooth:
-        cniter = math.sqrt(i + 1) / ncycle
+        cniter = math.sqrt(i + 1) % ncycle / ncycle
         col_i = round(cniter * ncol) % ncol
         r = colortable[col_i, 0]
         g = colortable[col_i, 1]
@@ -780,48 +791,56 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height):
 
     Mandelbrot orbit of s_M (state['orbit_point_m']) with opacity (1 - set_blend).
     Julia orbit of s_J (state['orbit_point_j']) with opacity set_blend.
-    The draggable endpoint is the more visible orbit point.
+    Julia constant c_J (state['julia_c']) shown as a colored point when show_c_point is True.
+    The draggable endpoint highlight goes to the more visible orbit point.
     """
-    if not state.get("show_orbits", False):
-        return
-
     set_blend = state.get("set_blend", 0.0)
     mb_alpha = 1.0 - set_blend
     ju_alpha = set_blend
 
+    show_orbits = state.get("show_orbits", True)
+    show_mb_orbits = state.get("show_orbits_m", show_orbits)
+    show_ju_orbits = state.get("show_orbits_j", show_orbits)
+    show_mb_lines = state.get("show_orbit_lines_m", True)
+    show_ju_lines = state.get("show_orbit_lines_j", True)
+    show_c_point = state.get("show_c_point", True)
+
     max_iter = min(state.get("orbit_max_iter", 200), 500)
     julia_c = state.get("julia_c", DEFAULT_JULIA_C)
-    rgb_thetas = list(state["rgb_thetas"])
     phase = state.get("phase", 0.0)
-    cache_key = (tuple(rgb_thetas), phase)
-    if cache_key not in _ORBIT_COLOR_CACHE:
-        rgb_with_phase = [rgb_thetas[0] + phase, rgb_thetas[1] + phase, rgb_thetas[2]]
-        _ORBIT_COLOR_CACHE[cache_key] = make_colortable(np.array(rgb_with_phase, dtype=np.float64))
-    colortable = _ORBIT_COLOR_CACHE[cache_key]
+
+    # Separate colortable for orbits
+    orbit_rgb = list(state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS))
+    orbit_rgb_with_phase = [orbit_rgb[0] + phase, orbit_rgb[1] + phase, orbit_rgb[2]]
+    orbit_cache_key = (tuple(orbit_rgb), phase)
+    if orbit_cache_key not in _ORBIT_COLOR_CACHE:
+        _ORBIT_COLOR_CACHE[orbit_cache_key] = make_colortable(
+            np.array(orbit_rgb_with_phase, dtype=np.float64))
+    colortable = _ORBIT_COLOR_CACHE[orbit_cache_key]
+
     ncycle = math.sqrt(max_iter)
     smooth = state.get("smooth", True)
     pt_size = state.get("orbit_point_size", 3)
 
-    # Determine which orbit point is the draggable primary
-    # The more visible set's orbit point gets the draggable yellow circle
     orbit_hover = state.get("orbit_hover", False)
+    orbit_drag_mode = state.get("orbit_drag_mode", None)
 
-    def _draw_single_orbit(sx, sy, use_julia, opacity, color_tint):
-        """Draw a single orbit with given opacity (0.0 to 1.0)."""
+    def _draw_single_orbit(sx, sy, use_julia, c_re, c_im, opacity, show_lines):
         if opacity <= 0.0:
             return
-        points = compute_orbit(sx, sy, max_iter, use_julia, julia_c[0], julia_c[1])
+        points = compute_orbit(sx, sy, max_iter, use_julia, c_re, c_im)
         screen_pts = _mandelbrot_to_screen_all(points, xmin, xmax, ymin, ymax, width, height)
 
-        for i in range(len(screen_pts) - 1):
-            color = _orbit_pixel_color(i, smooth, colortable, ncycle)
-            color = (int(color[0] * opacity), int(color[1] * opacity), int(color[2] * opacity))
-            clipped = _liang_barsky_clip(
-                screen_pts[i][0], screen_pts[i][1],
-                screen_pts[i + 1][0], screen_pts[i + 1][1],
-                0, 0, width, height)
-            if clipped:
-                pygame.draw.line(screen, color, (clipped[0], clipped[1]), (clipped[2], clipped[3]), 1)
+        if show_lines:
+            for i in range(len(screen_pts) - 1):
+                color = _orbit_pixel_color(i, smooth, colortable, ncycle)
+                color = (int(color[0] * opacity), int(color[1] * opacity), int(color[2] * opacity))
+                clipped = _liang_barsky_clip(
+                    screen_pts[i][0], screen_pts[i][1],
+                    screen_pts[i + 1][0], screen_pts[i + 1][1],
+                    0, 0, width, height)
+                if clipped:
+                    pygame.draw.line(screen, color, (clipped[0], clipped[1]), (clipped[2], clipped[3]), 1)
 
         for i in range(len(screen_pts)):
             if 0 <= screen_pts[i][0] <= width and 0 <= screen_pts[i][1] <= height:
@@ -832,23 +851,37 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height):
 
     # Draw Mandelbrot orbit (s_M) with opacity = mb_alpha
     orbit_pt_m = state.get("orbit_point_m", state.get("orbit_point", DEFAULT_ORBIT_POINT_M))
-    _draw_single_orbit(orbit_pt_m[0], orbit_pt_m[1], False, mb_alpha, None)
+    if show_mb_orbits and mb_alpha > 0.0:
+        _draw_single_orbit(orbit_pt_m[0], orbit_pt_m[1], False,
+                           state.get("julia_c", DEFAULT_JULIA_C)[0],
+                           state.get("julia_c", DEFAULT_JULIA_C)[1], mb_alpha, show_mb_lines)
 
     # Draw Julia orbit (s_J) with opacity = ju_alpha
     orbit_pt_j = state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)
-    _draw_single_orbit(orbit_pt_j[0], orbit_pt_j[1], True, ju_alpha, None)
+    if show_ju_orbits and ju_alpha > 0.0:
+        _draw_single_orbit(orbit_pt_j[0], orbit_pt_j[1], True,
+                           julia_c[0], julia_c[1], ju_alpha, show_ju_lines)
 
-    # Draw draggable endpoint for the primary (more visible) orbit point
+    # Draw c_J (Julia constant) as a colored point
+    if show_c_point:
+        cx, cy = julia_c
+        cx_px = int((cx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
+        cy_px = int((ymax - cy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
+        c_size = state.get("c_point_size", DEFAULT_C_POINT_SIZE)
+        c_color = state.get("c_point_color", DEFAULT_C_POINT_COLOR)
+        if 0 <= cx_px <= width and 0 <= cy_px <= height:
+            pygame.draw.circle(screen, tuple(int(c) for c in c_color), (cx_px, cy_px), max(3, c_size))
+            if orbit_drag_mode == "julia_c":
+                pygame.draw.circle(screen, (180, 180, 180), (cx_px, cy_px), max(4, c_size + 1), 1)
+
+    # Draw draggable endpoint highlight for the primary (more visible) orbit point
     if mb_alpha >= ju_alpha:
         px_sx, px_sy = orbit_pt_m
-        is_primary_julia = False
     else:
         px_sx, px_sy = orbit_pt_j
-        is_primary_julia = True
 
     px = int((px_sx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
     py = int((ymax - px_sy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
-    # Yellow circle — scale brightness by primary opacity
     bright = int(255 * max(mb_alpha, ju_alpha))
     pygame.draw.circle(screen, (bright, bright, 0), (px, py), 4)
     if orbit_hover:
@@ -977,18 +1010,14 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
     Uses set_blend from state to blend Mandelbrot (alpha = 1 - blend) and
     Julia (alpha = blend) sets. Skips rendering a set when its alpha is 0.
     """
-    set_blend = state.get("set_blend", 0.0)
+    set_blend = max(0.0, min(1.0, state.get("set_blend", 0.0)))
     mb_alpha = 1.0 - set_blend
-    # Clamp blend to [0, 1]
-    set_blend = max(0.0, min(1.0, set_blend))
-    mb_alpha = max(0.0, min(1.0, mb_alpha))
 
-    _RENDER_CACHE.clear()  # Always rebuild params to pick up state changes
-    surf = None
+    _RENDER_CACHE.clear()
     used_gpu = False
 
-    if mb_alpha > 0.0 and set_blend < 1.0:
-        # Render Mandelbrot only or both
+    mb_rgb = None
+    if mb_alpha > 0.0:
         mb_key = (tuple(state["rgb_thetas"]), state["phase"],
                   state["use_gpu"] and _CUDA_AVAILABLE,
                   max_iter, False, tuple(state.get("julia_c", DEFAULT_JULIA_C)),
@@ -1000,15 +1029,12 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
                   state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS))
         mb_params = _RENDER_CACHE.get(mb_key)
         if mb_params is None:
-            mb_params = build_render_params(state, maxiter=max_iter, is_julia=False)
+            mb_params = build_render_params(state, maxiter=max_iter, use_julia=False)
             _RENDER_CACHE[mb_key] = mb_params
         mb_rgb = _render_single(width, height, xmin, xmax, ymin, ymax, max_iter, mb_params)
         used_gpu = mb_params["use_gpu"]
-    else:
-        mb_rgb = None
 
-    if set_blend > 0.0 and set_blend < 1.0:
-        # Also render Julia for blending
+    if set_blend > 0.0:
         ju_key = (tuple(state["rgb_thetas"]), state["phase"],
                   state["use_gpu"] and _CUDA_AVAILABLE,
                   max_iter, True, tuple(state.get("julia_c", DEFAULT_JULIA_C)),
@@ -1020,39 +1046,19 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
                   state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS))
         ju_params = _RENDER_CACHE.get(ju_key)
         if ju_params is None:
-            ju_params = build_render_params(state, maxiter=max_iter, is_julia=True)
+            ju_params = build_render_params(state, maxiter=max_iter, use_julia=True)
             _RENDER_CACHE[ju_key] = ju_params
         ju_rgb = _render_single(width, height, xmin, xmax, ymin, ymax, max_iter, ju_params)
         used_gpu = used_gpu or ju_params["use_gpu"]
 
         if mb_rgb is not None:
-            # Alpha blend
             mb_f = mb_rgb.astype(np.float64)
             ju_f = ju_rgb.astype(np.float64)
             blended = mb_f * mb_alpha + ju_f * set_blend
-            blended = np.clip(blended, 0, 255).astype(np.uint8)
-            rgb_t = blended
+            rgb_t = np.clip(blended, 0, 255).astype(np.uint8)
         else:
             rgb_t = ju_rgb
-    elif set_blend >= 1.0:
-        # Julia only
-        ju_key = (tuple(state["rgb_thetas"]), state["phase"],
-                  state["use_gpu"] and _CUDA_AVAILABLE,
-                  max_iter, True, tuple(state.get("julia_c", DEFAULT_JULIA_C)),
-                  state.get("smooth", True), state.get("fxaa", False),
-                  state.get("stripe_s", 0.0), state.get("stripe_sig", 0.9),
-                  state.get("step_s", 0.0), state.get("light_angle", DEFAULT_LIGHT_ANGLE),
-                  state.get("light_azim", DEFAULT_LIGHT_AZIM), state.get("light_i", DEFAULT_LIGHT_I),
-                  state.get("k_ambiant", DEFAULT_K_AMBIANT), state.get("k_diffuse", DEFAULT_K_DIFFUSE),
-                  state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS))
-        ju_params = _RENDER_CACHE.get(ju_key)
-        if ju_params is None:
-            ju_params = build_render_params(state, maxiter=max_iter, is_julia=True)
-            _RENDER_CACHE[ju_key] = ju_params
-        rgb_t = _render_single(width, height, xmin, xmax, ymin, ymax, max_iter, ju_params)
-        used_gpu = ju_params["use_gpu"]
     else:
-        # Mandelbrot only (set_blend == 0)
         rgb_t = mb_rgb
 
     surf = pygame.surfarray.make_surface(rgb_t)
@@ -1123,8 +1129,9 @@ class MenuOverlay:
             "max_iter":         (True,  state["max_iter"],         1,      9999, 1.0),
             "stripe_s":         (True,  int(state["stripe_s"]),     0,      100,  1.0),
             "step_s":           (True,  int(state["step_s"]),       0,      100,  1.0),
-            "orbit_max_iter":   (True,  state["orbit_max_iter"],    1,      500,  1.0),
+            "orbit_max_iter":   (True,  state["orbit_max_iter"],    1,      500,  10.0),
             "orbit_point_size": (True,  state.get("orbit_point_size", 3), 1,   10,   1.0),
+            "c_point_size":     (True,  state.get("c_point_size", 5), 1,   20,   1.0),
             "shininess":        (False, float(state["shininess"]), 1.0,   100.0, 1.0),
             "phase":            (False, state["phase"],             0.0,   1.0,  0.01),
             "light_angle":      (False, state["light_angle"],       0.0,   1.0,  0.1),
@@ -1136,9 +1143,16 @@ class MenuOverlay:
             "hue_0":            (False, state["rgb_thetas"][0],     0.0,   1.0,  0.01),
             "hue_1":            (False, state["rgb_thetas"][1],     0.0,   1.0,  0.01),
             "sat":              (False, state["rgb_thetas"][2],     0.0,   1.0,  0.01),
-            "set_blend":        (False, state.get("set_blend", 0.0), 0.0, 1.0, 0.05),
+            "orbit_hue_0":      (False, state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[0], 0.0, 1.0, 0.01),
+            "orbit_hue_1":      (False, state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[1], 0.0, 1.0, 0.01),
+            "orbit_sat":        (False, state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[2], 0.0, 1.0, 0.01),
+            "c_color_r":        (False, state.get("c_point_color", DEFAULT_C_POINT_COLOR)[0], 0.0, 1.0, 0.02),
+            "c_color_g":        (False, state.get("c_point_color", DEFAULT_C_POINT_COLOR)[1], 0.0, 1.0, 0.02),
+            "c_color_b":        (False, state.get("c_point_color", DEFAULT_C_POINT_COLOR)[2], 0.0, 1.0, 0.02),
+            "set_blend":        (False, round(state.get("set_blend", 0.0), 4), 0.0, 1.0, 0.05),
         }
-        toggle_keys = {"use_gpu", "smooth", "fxaa", "show_orbits"}
+        toggle_keys = {"use_gpu", "smooth", "fxaa", "show_orbits", "show_orbits_m", "show_orbits_j",
+                       "show_orbit_lines_m", "show_orbit_lines_j", "show_c_point", "reset-orbit-points"}
 
         if key == "max_iter":
             val = state["max_iter"]
@@ -1163,7 +1177,7 @@ class MenuOverlay:
             grid = base_step if (is_shift or not is_ctrl) else base_step * 0.1
             direction = 1 if rtype == "plus" else -1
             new_val = val + direction * step
-            new_val = math.floor(new_val / grid) * grid
+            new_val = round(new_val / grid) * grid
             if key in cyclic_keys:
                 span = vmax - vmin
                 if span > 0:
@@ -1176,16 +1190,37 @@ class MenuOverlay:
                 idx = {"hue_0": 0, "hue_1": 1, "sat": 2}[key]
                 state["rgb_thetas"][idx] = new_val
                 state["palette_index"] = -1
+            elif key in ("orbit_hue_0", "orbit_hue_1", "orbit_sat"):
+                idx = {"orbit_hue_0": 0, "orbit_hue_1": 1, "orbit_sat": 2}[key]
+                state["orbit_rgb_thetas"][idx] = new_val
+            elif key in ("c_color_r", "c_color_g", "c_color_b"):
+                idx = {"c_color_r": 0, "c_color_g": 1, "c_color_b": 2}[key]
+                state["c_point_color"][idx] = new_val
             else:
                 state[key] = new_val
             return True
         elif key in toggle_keys:
-            state[key] = not state.get(key, False)
+            if key == "show_orbits_m":
+                state["show_orbits_m"] = not state.get("show_orbits_m", True)
+                state["show_orbits"] = state.get("show_orbits_m", True) or state.get("show_orbits_j", True)
+            elif key == "show_orbits_j":
+                state["show_orbits_j"] = not state.get("show_orbits_j", True)
+                state["show_orbits"] = state.get("show_orbits_m", True) or state.get("show_orbits_j", True)
+            elif key == "show_orbits":
+                state["show_orbits"] = not state.get("show_orbits", True)
+            elif key == "reset-orbit-points":
+                state["orbit_point_m"] = list(DEFAULT_ORBIT_POINT_M)
+                state["orbit_point_j"] = list(DEFAULT_ORBIT_POINT_J)
+                state["orbit_point"] = list(DEFAULT_ORBIT_POINT_M)
+                state["julia_c"] = list(DEFAULT_JULIA_C)
+            else:
+                state[key] = not state.get(key, False)
             return True
         elif key == "reset-orbit-point":
             state["orbit_point_m"] = list(DEFAULT_ORBIT_POINT_M)
             state["orbit_point_j"] = list(DEFAULT_ORBIT_POINT_J)
             state["orbit_point"] = list(DEFAULT_ORBIT_POINT_M)  # back-compat
+            state["julia_c"] = list(DEFAULT_JULIA_C)
             return True
         elif key == "reset-colors":
             state["rgb_thetas"] = list(DEFAULT_RGB_THETAS)
@@ -1240,6 +1275,13 @@ class MenuOverlay:
             ("sat",                 "sat",              state["rgb_thetas"][2],             False),
             ("orbit_max_iter",      "orbit_iter",       state["orbit_max_iter"],            True),
             ("orbit_point_size",    "orbit_size",       state.get("orbit_point_size", 3),   True),
+            ("c_point_size",        "c_pt_size",        state.get("c_point_size", 5),        True),
+            ("orbit_hue_0",         "orbit_h0",         state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[0], False),
+            ("orbit_hue_1",         "orbit_h1",         state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[1], False),
+            ("orbit_sat",           "orbit_sat",        state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[2], False),
+            ("c_color_r",           "c_r",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[0], False),
+            ("c_color_g",           "c_g",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[1], False),
+            ("c_color_b",           "c_b",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[2], False),
             ("set_blend",           "blend",            state.get("set_blend", 0.0),        False),
         ]
 
@@ -1247,7 +1289,11 @@ class MenuOverlay:
             ("use_gpu", "GPU", state["use_gpu"] and _CUDA_AVAILABLE),
             ("smooth", "smooth", state.get("smooth", True)),
             ("fxaa", "fxaa", state.get("fxaa", False)),
-            ("show_orbits", "orbits", state.get("show_orbits", True)),
+            ("show_orbits_m", "mb orbits", state.get("show_orbits_m", state.get("show_orbits", True))),
+            ("show_orbits_j", "ju orbits", state.get("show_orbits_j", state.get("show_orbits", True))),
+            ("show_orbit_lines_m", "mb lines", state.get("show_orbit_lines_m", True)),
+            ("show_orbit_lines_j", "ju lines", state.get("show_orbit_lines_j", True)),
+            ("show_c_point", "c point", state.get("show_c_point", True)),
         ]
 
         palette_idx = state.get("palette_index", 0)
@@ -1302,9 +1348,10 @@ class MenuOverlay:
 
         # Full-width action buttons
         for btn_key, btn_label, btn_color in [
-            ("reset-orbit-point", "reset orbit point", (60, 60, 60)),
+            ("reset-orbit-point", "reset orbit point [I]", (60, 60, 60)),
             ("reset-colors", "reset colors (RGB+phase)", (80, 60, 60)),
             ("reset-all", "reset all settings [BS]", (80, 60, 60)),
+            ("reset-orbit-points", "reset points (MB+Julia+c_J)", (60, 60, 70)),
             ("cycle-palette", f"palette: {palette_name} [TAB]", (60, 60, 60)),
             ("show-keybinds", "show keybinds [K]", (50, 50, 70)),
         ]:
@@ -1369,7 +1416,8 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         return
 
     if params is None:
-        params = build_render_params(state, maxiter=state.get("max_iter", 256))
+        params = build_render_params(state, maxiter=state.get("max_iter", 256),
+                                     use_julia=state.get("set_blend", 0.0) >= 1.0)
 
     scale_x = (xmax - xmin) / width
     scale_y = (ymax - ymin) / height
@@ -1378,33 +1426,29 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         sx = xmin
         ex = xmin + ox * scale_x
         if sx < ex:
-            rgb_t = compute_image(ox, height, sx, ex, ymin, ymax, state["max_iter"], params)
-            strip = pygame.surfarray.make_surface(rgb_t)
-            screen.blit(strip, (0, 0))
+            surf, _ = render_to_surface(ox, height, sx, ex, ymin, ymax, state["max_iter"], state)
+            screen.blit(surf, (0, 0))
     elif ox < 0:
         sx = xmax + ox * scale_x
         ex = xmax
         ow = -ox
         if sx < ex:
-            rgb_t = compute_image(ow, height, sx, ex, ymin, ymax, state["max_iter"], params)
-            strip = pygame.surfarray.make_surface(rgb_t)
-            screen.blit(strip, (width + ox, 0))
+            surf, _ = render_to_surface(ow, height, sx, ex, ymin, ymax, state["max_iter"], state)
+            screen.blit(surf, (width + ox, 0))
 
     if oy > 0:
         sy = ymax - oy * scale_y
         ey = ymax
         if sy < ey:
-            rgb_t = compute_image(width, oy, xmin, xmax, sy, ey, state["max_iter"], params)
-            strip = pygame.surfarray.make_surface(rgb_t)
-            screen.blit(strip, (0, 0))
+            surf, _ = render_to_surface(width, oy, xmin, xmax, sy, ey, state["max_iter"], state)
+            screen.blit(surf, (0, 0))
     elif oy < 0:
         sy = ymin
         ey = ymin - oy * scale_y
         oh = -oy
         if sy < ey:
-            rgb_t = compute_image(width, oh, xmin, xmax, sy, ey, state["max_iter"], params)
-            strip = pygame.surfarray.make_surface(rgb_t)
-            screen.blit(strip, (0, height + oy))
+            surf, _ = render_to_surface(width, oh, xmin, xmax, sy, ey, state["max_iter"], state)
+            screen.blit(surf, (0, height + oy))
 
 
 def key_name_to_pygame(name):
@@ -1523,6 +1567,14 @@ def _reset_to_defaults(state):
     state["use_gpu"] = False
     state["orbit_point"] = list(DEFAULT_ORBIT_POINT)
     state["show_orbits"] = True
+    state["show_orbits_m"] = True
+    state["show_orbits_j"] = True
+    state["show_orbit_lines_m"] = DEFAULT_ORBIT_LINE_M
+    state["show_orbit_lines_j"] = DEFAULT_ORBIT_LINE_J
+    state["show_c_point"] = DEFAULT_SHOW_C_POINT
+    state["c_point_size"] = DEFAULT_C_POINT_SIZE
+    state["c_point_color"] = list(DEFAULT_C_POINT_COLOR)
+    state["orbit_rgb_thetas"] = list(DEFAULT_ORBIT_RGB_THETAS)
     state["orbit_max_iter"] = 200
     state["orbit_point_size"] = 3
     state["fxaa"] = False
@@ -1629,6 +1681,12 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         "show_orbits": get_persistent_setting(settings, "show-orbits",
                                                cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
                                                default=True),
+        "show_orbits_m": get_persistent_setting(settings, "show-orbits-m",
+                                                cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
+                                                default=True),
+        "show_orbits_j": get_persistent_setting(settings, "show-orbits-j",
+                                                cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
+                                                default=True),
         "orbit_max_iter": get_persistent_setting(settings, "orbit-max-iter", cast=int, default=200),
         "orbit_point_size": get_persistent_setting(settings, "orbit-point-size", cast=int, default=3),
         "set_blend": get_persistent_setting(settings, "set-blend",
@@ -1637,6 +1695,26 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
             get_persistent_setting(settings, "julia-cx", cast=float, default=DEFAULT_JULIA_C[0]),
             get_persistent_setting(settings, "julia-cy", cast=float, default=DEFAULT_JULIA_C[1]),
         ],
+        "show_c_point": get_persistent_setting(settings, "show-c-point",
+                                              cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
+                                              default=DEFAULT_SHOW_C_POINT),
+        "c_point_size": get_persistent_setting(settings, "c-point-size", cast=int, default=DEFAULT_C_POINT_SIZE),
+        "c_point_color": [
+            get_persistent_setting(settings, "c-point-color-r", cast=float, default=DEFAULT_C_POINT_COLOR[0]),
+            get_persistent_setting(settings, "c-point-color-g", cast=float, default=DEFAULT_C_POINT_COLOR[1]),
+            get_persistent_setting(settings, "c-point-color-b", cast=float, default=DEFAULT_C_POINT_COLOR[2]),
+        ],
+        "orbit_rgb_thetas": [
+            get_persistent_setting(settings, "orbit-hue-0", cast=float, default=DEFAULT_ORBIT_RGB_THETAS[0]),
+            get_persistent_setting(settings, "orbit-hue-1", cast=float, default=DEFAULT_ORBIT_RGB_THETAS[1]),
+            get_persistent_setting(settings, "orbit-sat", cast=float, default=DEFAULT_ORBIT_RGB_THETAS[2]),
+        ],
+        "show_orbit_lines_m": get_persistent_setting(settings, "show-orbit-lines-m",
+                                                      cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
+                                                      default=DEFAULT_ORBIT_LINE_M),
+        "show_orbit_lines_j": get_persistent_setting(settings, "show-orbit-lines-j",
+                                                      cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
+                                                      default=DEFAULT_ORBIT_LINE_J),
     }
     state["rgb_thetas"] = list(COLOR_THETAS[state["palette_index"]])
 
@@ -1725,32 +1803,47 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                         needs_render = True
                         continue
                     _dbg(f"MOUSEBUTTONDOWN {event.pos}")
-                    # Check if clicking near orbit point
-                    if state.get("show_orbits", False) and surface is not None:
-                        set_blend = state.get("set_blend", 0.0)
-                        # Check Julia orbit point first if Julia is more visible
-                        if set_blend >= 0.5:
-                            jx, jy = state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)
-                            px = int((jx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
-                            py = int((ymax - jy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
-                            dist = math.sqrt((event.pos[0] - px) ** 2 + (event.pos[1] - py) ** 2)
-                            if dist < 20:
-                                orbit_drag_mode = "julia"
-                                orbit_drag = True
-                                state["orbit_hover"] = True
-                                needs_render = True
-                                continue
-                        # Check Mandelbrot orbit point
-                        mx, my = state.get("orbit_point_m", state.get("orbit_point", DEFAULT_ORBIT_POINT_M))
-                        px = int((mx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
-                        py = int((ymax - my) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
-                        dist = math.sqrt((event.pos[0] - px) ** 2 + (event.pos[1] - py) ** 2)
+                    mpx, mpy = event.pos
+                    # Check if clicking on any of the 3 draggable points
+                    # Priority: orbit point that matches current blend (more visible), then c_J, then others
+                    click_targets = []
+                    set_blend = state.get("set_blend", 0.0)
+                    mb_alpha = 1.0 - set_blend
+
+                    # Mandelbrot orbit point (blue)
+                    mx, my = state.get("orbit_point_m", state.get("orbit_point", DEFAULT_ORBIT_POINT_M))
+                    px = int((mx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
+                    py = int((ymax - my) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
+                    dist_mb = math.sqrt((mpx - px) ** 2 + (mpy - py) ** 2)
+                    click_targets.append((dist_mb, "mandelbrot", mb_alpha))
+
+                    # Julia orbit point (red)
+                    jx, jy = state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)
+                    px = int((jx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
+                    py = int((ymax - jy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
+                    dist_ju = math.sqrt((mpx - px) ** 2 + (mpy - py) ** 2)
+                    click_targets.append((dist_ju, "julia", set_blend))
+
+                    # Julia constant c_J (green)
+                    cx, cy = state.get("julia_c", DEFAULT_JULIA_C)
+                    px = int((cx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
+                    py = int((ymax - cy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
+                    dist_cj = math.sqrt((mpx - px) ** 2 + (mpy - py) ** 2)
+                    click_targets.append((dist_cj, "julia_c", 1.0))
+
+                    found = False
+                    for dist, mode, _alpha in sorted(click_targets, key=lambda t: t[0]):
                         if dist < 20:
-                            orbit_drag_mode = "mandelbrot"
+                            orbit_drag_mode = mode
+                            state["orbit_drag_mode"] = mode
                             orbit_drag = True
                             state["orbit_hover"] = True
                             needs_render = True
-                            continue
+                            found = True
+                            break
+
+                    if found:
+                        continue
                     orbit_drag = False
                     dragging = True
                     last_mouse_pos = event.pos
@@ -1768,6 +1861,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     _dbg(f"MOUSEBUTTONUP {event.pos} dragging=False")
                     orbit_drag = False
                     orbit_drag_mode = None
+                    state["orbit_drag_mode"] = None
                     state["orbit_hover"] = False
                     dragging = False
                     drag_offset_x = 0.0
@@ -1783,6 +1877,8 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     new_sy = ymax - my * scale_y
                     if orbit_drag_mode == "julia":
                         state["orbit_point_j"] = [new_sx, new_sy]
+                    elif orbit_drag_mode == "julia_c":
+                        state["julia_c"] = [new_sx, new_sy]
                     else:
                         state["orbit_point_m"] = [new_sx, new_sy]
                         state["orbit_point"] = [new_sx, new_sy]  # back-compat
@@ -1903,31 +1999,45 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     force_full_render = True
                     needs_render = True
 
-                elif action == "blend-up":
-                    _shift = is_shift_held()
-                    _step = 0.1 if _shift else 0.05
-                    state["set_blend"] = round(max(0.0, min(1.0, state.get("set_blend", 0.0) + _step)), 4)
-                    needs_render = True
-
-                elif action == "blend-down":
-                    _shift = is_shift_held()
-                    _step = 0.1 if _shift else 0.05
-                    state["set_blend"] = round(max(0.0, min(1.0, state.get("set_blend", 0.0) - _step)), 4)
-                    needs_render = True
-
                 elif action == "toggle-orbits":
-                    state["show_orbits"] = not state.get("show_orbits", False)
+                    new_val = not state.get("show_orbits", True)
+                    state["show_orbits"] = new_val
+                    state["show_orbits_m"] = new_val
+                    state["show_orbits_j"] = new_val
+                    needs_render = True
+
+                elif action == "toggle-orbits-m":
+                    state["show_orbits_m"] = not state.get("show_orbits_m", True)
+                    needs_render = True
+
+                elif action == "toggle-orbits-j":
+                    state["show_orbits_j"] = not state.get("show_orbits_j", True)
+                    state["show_orbits"] = state.get("show_orbits_m", True) or state.get("show_orbits_j", True)
+                    needs_render = True
+
+                elif action == "toggle-orbit-lines-m":
+                    state["show_orbit_lines_m"] = not state.get("show_orbit_lines_m", True)
+                    needs_render = True
+
+                elif action == "toggle-orbit-lines-j":
+                    state["show_orbit_lines_j"] = not state.get("show_orbit_lines_j", True)
+                    needs_render = True
+
+                elif action == "toggle-c-point":
+                    state["show_c_point"] = not state.get("show_c_point", True)
                     needs_render = True
 
                 elif action == "reset-orbit-point":
                     state["orbit_point_m"] = list(DEFAULT_ORBIT_POINT_M)
                     state["orbit_point_j"] = list(DEFAULT_ORBIT_POINT_J)
                     state["orbit_point"] = list(DEFAULT_ORBIT_POINT_M)
+                    state["julia_c"] = list(DEFAULT_JULIA_C)
                     needs_render = True
 
                 elif action == "swap-orbit-point":
-                    state["orbit_point"], state["orbit_point_m"] = \
-                        state["orbit_point_m"], state["orbit_point"]
+                    state["orbit_point_m"], state["orbit_point_j"] = \
+                        list(state["orbit_point_j"]), list(state["orbit_point_m"])
+                    state["orbit_point"] = list(state["orbit_point_m"])
                     needs_render = True
 
                 elif action == "cycle-palette":
@@ -2071,18 +2181,30 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         ("step_s", state["step_s"]),
         ("smooth", state["smooth"]),
         ("fxaa", state.get("fxaa", False)),
-         ("show-orbits", state.get("show_orbits", False)),
-         ("set-blend", state.get("set_blend", 0.0)),
-         ("julia-cx", state.get("julia_c", DEFAULT_JULIA_C)[0]),
-         ("julia-cy", state.get("julia_c", DEFAULT_JULIA_C)[1]),
-         ("orbit-mx", state.get("orbit_point_m", DEFAULT_ORBIT_POINT_M)[0]),
-         ("orbit-my", state.get("orbit_point_m", DEFAULT_ORBIT_POINT_M)[1]),
-         ("orbit-jx", state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)[0]),
-         ("orbit-jy", state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)[1]),
-         ("orbit_x", state.get("orbit_point", DEFAULT_ORBIT_POINT_M)[0]),
-         ("orbit_y", state.get("orbit_point", DEFAULT_ORBIT_POINT_M)[1]),
+        ("show-orbits", state.get("show_orbits", True)),
+        ("show-orbits-m", state.get("show_orbits_m", True)),
+        ("show-orbits-j", state.get("show_orbits_j", True)),
+        ("set-blend", state.get("set_blend", 0.0)),
+        ("julia-cx", state.get("julia_c", DEFAULT_JULIA_C)[0]),
+        ("julia-cy", state.get("julia_c", DEFAULT_JULIA_C)[1]),
+        ("orbit-mx", state.get("orbit_point_m", DEFAULT_ORBIT_POINT_M)[0]),
+        ("orbit-my", state.get("orbit_point_m", DEFAULT_ORBIT_POINT_M)[1]),
+        ("orbit-jx", state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)[0]),
+        ("orbit-jy", state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)[1]),
+        ("orbit_x", state.get("orbit_point", DEFAULT_ORBIT_POINT_M)[0]),
+        ("orbit_y", state.get("orbit_point", DEFAULT_ORBIT_POINT_M)[1]),
         ("orbit-max-iter", state["orbit_max_iter"]),
         ("orbit-point-size", state.get("orbit_point_size", 3)),
+        ("c-point-size", state.get("c_point_size", 5)),
+        ("show-c-point", state.get("show_c_point", True)),
+        ("c-point-color-r", state.get("c_point_color", DEFAULT_C_POINT_COLOR)[0]),
+        ("c-point-color-g", state.get("c_point_color", DEFAULT_C_POINT_COLOR)[1]),
+        ("c-point-color-b", state.get("c_point_color", DEFAULT_C_POINT_COLOR)[2]),
+        ("orbit-hue-0", state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[0]),
+        ("orbit-hue-1", state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[1]),
+        ("orbit-sat", state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[2]),
+        ("show-orbit-lines-m", state.get("show_orbit_lines_m", True)),
+        ("show-orbit-lines-j", state.get("show_orbit_lines_j", True)),
         ("palette-index", state.get("palette_index", 0)),
     ]
     for key, val in _save_map:

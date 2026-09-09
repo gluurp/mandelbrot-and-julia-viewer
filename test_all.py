@@ -70,10 +70,14 @@ def build_state(**overrides):
         "fxaa": False,
         "palette_index": 0,
         "show_orbits": True,
+        "show_orbits_m": True,
+        "show_orbits_j": True,
         "orbit_point": [0.018, -0.63],
+        "orbit_point_m": [0.018, -0.63],
+        "orbit_point_j": [0.153, 0.473],
         "orbit_max_iter": 200,
         "orbit_point_size": 3,
-        "is_julia": False,
+        "set_blend": 0.0,
         "julia_c": [0.394, 0.338],
     }
     state.update(overrides)
@@ -418,13 +422,55 @@ if mb._CUDA_AVAILABLE:
          f"max_diff={np.max(np.abs(julia_result.astype(int) - gpu_ju_result.astype(int)))}")
 
 # build_render_params with Julia
-julia_params_state = build_state(is_julia=True, julia_c=[0.394, 0.338])
-julia_params = mb.build_render_params(julia_params_state, maxiter=32)
+julia_params_state = build_state(julia_c=[0.394, 0.338], set_blend=1.0)
+julia_params = mb.build_render_params(julia_params_state, maxiter=32, use_julia=True)
 test("build_render_params: has use_julia", "use_julia" in julia_params)
 test("build_render_params: use_julia is True", julia_params["use_julia"] is True)
 test("build_render_params: has julia_c_re", "julia_c_re" in julia_params)
 test("build_render_params: julia_c_re correct", abs(julia_params["julia_c_re"] - 0.394) < 0.001)
 test("build_render_params: julia_c_im correct", abs(julia_params["julia_c_im"] - 0.338) < 0.001)
+
+# ===========================================================================
+# 12c. Blend functionality
+# ===========================================================================
+print("\n--- Blend Functionality ---")
+# Blend at 0.0 should be Mandelbrot only
+mb_state_blend0 = build_state(set_blend=0.0)
+mb_surf, _ = mb.render_to_surface(32, 32, -2.0, 1.0, -1.5, 1.5, 32, mb_state_blend0)
+mb_result0 = pygame.surfarray.pixels3d(mb_surf)
+test("Blend 0.0: renders Mandelbrot", mb_result0.shape == (32, 32, 3))
+
+# Blend at 1.0 should be Julia only
+ju_state_blend1 = build_state(set_blend=1.0)
+ju_surf, _ = mb.render_to_surface(32, 32, -2.0, 1.0, -1.5, 1.5, 32, ju_state_blend1)
+ju_result1 = pygame.surfarray.pixels3d(ju_surf)
+test("Blend 1.0: renders Julia", ju_result1.shape == (32, 32, 3))
+test("Blend 0.0 != Blend 1.0", not np.array_equal(mb_result0, ju_result1))
+
+# Blend at 0.5 should be a mix
+blend_state = build_state(set_blend=0.5)
+blend_surf, _ = mb.render_to_surface(32, 32, -2.0, 1.0, -1.5, 1.5, 32, blend_state)
+blend_result = pygame.surfarray.pixels3d(blend_surf)
+test("Blend 0.5: shape correct", blend_result.shape == (32, 32, 3))
+test("Blend 0.5 differs from pure MB", not np.array_equal(blend_result, mb_result0))
+test("Blend 0.5 differs from pure Julia", not np.array_equal(blend_result, ju_result1))
+
+# _apply_step blends correctly
+test_state = build_state(set_blend=0.25)
+mb._apply_step(test_state, "blend-up", 1.0)
+test("Blend step up from 0.25 = 0.30", abs(test_state["set_blend"] - 0.30) < 0.001, f"got {test_state['set_blend']}")
+
+test_state = build_state(set_blend=1.0)
+mb._apply_step(test_state, "blend-down", 1.0)
+test("Blend step down from 1.0 = 0.95", abs(test_state["set_blend"] - 0.95) < 0.001, f"got {test_state['set_blend']}")
+
+test_state = build_state(set_blend=0.0)
+mb._apply_step(test_state, "blend-up", 1.0)
+test("Blend step up from 0.0 = 0.05", abs(test_state["set_blend"] - 0.05) < 0.001, f"got {test_state['set_blend']}")
+
+test_state = build_state(set_blend=0.25)
+mb._apply_step(test_state, "blend-up", 10.0)  # shift
+test("Blend step up from 0.25 (shift) = 0.75", abs(test_state["set_blend"] - 0.75) < 0.001, f"got {test_state['set_blend']}")
 # ===========================================================================
 print("\n--- _post_process ---")
 mat = np.random.rand(16, 16, 3).astype(np.float32)
@@ -675,7 +721,87 @@ test("MenuOverlay: reset-all restores shininess", state["shininess"] == DEFAULT_
 state["orbit_point"] = [-1.0, 2.0]
 overlay._do_action("reset-orbit-point", "click", state)
 test("MenuOverlay: reset-orbit-point to (0.018, -0.63)",
-     state["orbit_point"] == [0.018, -0.63])
+      state["orbit_point"] == [0.018, -0.63])
+test("MenuOverlay: reset-orbit-point resets julia_c",
+      state["julia_c"] == mb.DEFAULT_JULIA_C)
+test("MenuOverlay: reset-orbit-point resets orbit_point_m",
+      state["orbit_point_m"] == mb.DEFAULT_ORBIT_POINT_M)
+test("MenuOverlay: reset-orbit-point resets orbit_point_j",
+      state["orbit_point_j"] == mb.DEFAULT_ORBIT_POINT_J)
+
+# Test reset-orbit-points (the action button)
+state["orbit_point_m"] = [1.0, 1.0]
+state["orbit_point_j"] = [2.0, 2.0]
+state["julia_c"] = [0.5, 0.5]
+overlay._do_action("reset-orbit-points", "click", state)
+test("MenuOverlay: reset-orbit-points resets julia_c",
+      state["julia_c"] == mb.DEFAULT_JULIA_C)
+test("MenuOverlay: reset-orbit-points resets orbit_point_m",
+      state["orbit_point_m"] == mb.DEFAULT_ORBIT_POINT_M)
+test("MenuOverlay: reset-orbit-points resets orbit_point_j",
+      state["orbit_point_j"] == mb.DEFAULT_ORBIT_POINT_J)
+
+# Test toggle show_orbits_m and show_orbits_j
+state["show_orbits_m"] = True
+overlay._do_action("show_orbits_m", "click", state)
+test("MenuOverlay: toggle show_orbits_m", state["show_orbits_m"] is False)
+
+state["show_orbits_j"] = False
+overlay._do_action("show_orbits_j", "click", state)
+test("MenuOverlay: toggle show_orbits_j", state["show_orbits_j"] is True)
+
+# Test blend step in menu (floating point fix)
+state["set_blend"] = 1.0
+mb.pygame.key.set_mods(0)  # no modifiers
+overlay._do_action("set_blend", "minus", state)
+test("MenuOverlay: blend down from 1.0 = 0.95 (no fp error)",
+      abs(state["set_blend"] - 0.95) < 0.001, f"got {state['set_blend']}")
+
+# Test orbit_max_iter step in menu (base step = 10)
+state["orbit_max_iter"] = 200
+overlay._do_action("orbit_max_iter", "plus", state)
+test("MenuOverlay: orbit iter step base = 10", state["orbit_max_iter"] == 210,
+      f"got {state['orbit_max_iter']}")
+
+# Test orbit_max_iter with shift (step = 100)
+mb.pygame.key.set_mods(pygame.KMOD_LSHIFT)
+state["orbit_max_iter"] = 200
+overlay._do_action("orbit_max_iter", "plus", state)
+test("MenuOverlay: orbit iter shift step = 100", state["orbit_max_iter"] == 300,
+      f"got {state['orbit_max_iter']}")
+
+# Test orbit line toggles
+state["show_orbit_lines_m"] = True
+overlay._do_action("show_orbit_lines_m", "click", state)
+test("MenuOverlay: toggle show_orbit_lines_m", state["show_orbit_lines_m"] is False)
+
+state["show_orbit_lines_j"] = False
+overlay._do_action("show_orbit_lines_j", "click", state)
+test("MenuOverlay: toggle show_orbit_lines_j", state["show_orbit_lines_j"] is True)
+
+# Test c-point toggle
+state["show_c_point"] = True
+overlay._do_action("show_c_point", "click", state)
+test("MenuOverlay: toggle show_c_point", state["show_c_point"] is False)
+
+# Test orbit color sliders
+state["orbit_rgb_thetas"] = [0.0, 0.167, 0.95]
+mb.pygame.key.set_mods(0)
+overlay._do_action("orbit_hue_0", "plus", state)
+test("MenuOverlay: orbit hue_0 step", state["orbit_rgb_thetas"][0] > 0.0,
+      f"got {state['orbit_rgb_thetas'][0]}")
+
+# Test c-point color sliders
+state["c_point_color"] = [0, 0.784, 0]  # [0, 200/255, 0]
+overlay._do_action("c_color_r", "plus", state)
+test("MenuOverlay: c_point color r step", state["c_point_color"][0] > 0.0,
+      f"got {state['c_point_color'][0]}")
+
+# Test reset-colors restores main colors
+overlay._do_action("reset-colors", "click", state)
+test("MenuOverlay: reset-colors restores rgb_thetas",
+      state["rgb_thetas"] == DEFAULT_RGB_THETAS)
+mb.pygame.key.set_mods(0)  # reset
 
 # ===========================================================================
 # 23. Strip effects
@@ -753,8 +879,8 @@ test("_blit_surface_clamped: negative offset executes", True)
 print("\n--- Render Cache ---")
 test("_RENDER_CACHE is dict", isinstance(mb._RENDER_CACHE, dict))
 state = make_full_state()
-state.setdefault("is_julia", False)
 state.setdefault("julia_c", mb.DEFAULT_JULIA_C)
+state.setdefault("set_blend", 0.0)
 mb.render_to_surface(32, 32, -2.0, 1.0, -1.5, 1.5, 32, state)
 key = (tuple(state["rgb_thetas"]), state["phase"],
        state["use_gpu"] and mb._CUDA_AVAILABLE,
