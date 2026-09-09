@@ -874,19 +874,22 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height):
             if orbit_drag_mode == "julia_c":
                 pygame.draw.circle(screen, (180, 180, 180), (cx_px, cy_px), max(4, c_size + 1), 1)
 
-    # Draw draggable endpoint highlight for the primary (more visible) orbit point
-    if mb_alpha >= ju_alpha:
-        px_sx, px_sy = orbit_pt_m
-    else:
-        px_sx, px_sy = orbit_pt_j
+    # Draw draggable endpoint highlight for the primary visible orbit point
+    mb_point_visible = show_mb_orbits and mb_alpha > 0.0
+    ju_point_visible = show_ju_orbits and ju_alpha > 0.0
+    if mb_point_visible or ju_point_visible:
+        if mb_point_visible and (not ju_point_visible or mb_alpha >= ju_alpha):
+            px_sx, px_sy = orbit_pt_m
+        else:
+            px_sx, px_sy = orbit_pt_j
 
-    px = int((px_sx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
-    py = int((ymax - px_sy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
-    bright = int(255 * max(mb_alpha, ju_alpha))
-    pygame.draw.circle(screen, (bright, bright, 0), (px, py), 4)
-    if orbit_hover:
-        outline = int(255 * max(mb_alpha, ju_alpha))
-        pygame.draw.circle(screen, (outline, outline, outline), (px, py), 5, 1)
+        px = int((px_sx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
+        py = int((ymax - px_sy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
+        bright = int(255 * max(mb_alpha, ju_alpha))
+        pygame.draw.circle(screen, (bright, bright, 0), (px, py), 4)
+        if orbit_hover:
+            outline = int(255 * max(mb_alpha, ju_alpha))
+            pygame.draw.circle(screen, (outline, outline, outline), (px, py), 5, 1)
 
 
 def compute_image(width, height, xmin, xmax, ymin, ymax, maxiter, params,
