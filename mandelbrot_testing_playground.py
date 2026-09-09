@@ -797,7 +797,7 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height):
 
         if show_lines:
             for i in range(len(screen_pts) - 1):
-                color = _orbit_pixel_color(i, smooth, colortable, ncycle)
+                color = _orbit_pixel_color(i + 1, smooth, colortable, ncycle)
                 color = (int(color[0] * opacity), int(color[1] * opacity), int(color[2] * opacity))
                 clipped = _liang_barsky_clip(
                     screen_pts[i][0], screen_pts[i][1],
