@@ -200,7 +200,23 @@ def load_settings(filename):
 def save_settings(filename, settings):
     with open(filename, "w") as f:
         for key, value in settings.items():
-            f.write(f"{key} = {value}\n")
+            if isinstance(value, (list, tuple)):
+                f.write(f"{key} = {','.join(str(v) for v in value)}\n")
+            else:
+                f.write(f"{key} = {value}\n")
+
+
+def _parse_julia_viewport(settings):
+    """Load julia_viewport from settings, falling back to default."""
+    raw = settings.get("julia-viewport")
+    if raw:
+        try:
+            parts = [float(v) for v in raw.split(",")]
+            if len(parts) == 4:
+                return parts
+        except (ValueError, TypeError):
+            pass
+    return list(DEFAULT_JULIA_VIEWPORT)
 
 
 def get_keybind(settings, name, default_key):
@@ -1815,7 +1831,24 @@ class MenuOverlay:
         menu_h = (len(rows) + len(toggles) + 8) * row_h + 2 * pad
         max_menu_h = sh - 2 * pad
         if menu_h > max_menu_h:
-            menu_h = max_menu_h
+            scale = min(scale, max_menu_h / menu_h)
+            s = lambda v: max(1, int(v * scale))
+            pad = s(10)
+            btn_w = s(36)
+            btn_h = s(28)
+            label_w = s(160)
+            val_w = s(100)
+            row_h = btn_h + s(8)
+            act_w = label_w + val_w + 2 * (btn_w + s(5)) + pad
+            _max_act_w = max(scaled_font.size(l)[0] for _, l, _ in action_buttons) + 2 * (pad + s(8))
+            if _max_act_w > act_w:
+                act_w = _max_act_w
+                label_w = _max_act_w - val_w - 2 * (btn_w + s(5)) - pad
+            menu_w = act_w + 2 * pad
+            if menu_w > sw - pad:
+                menu_w = sw - pad
+            menu_h = (len(rows) + len(toggles) + 8) * row_h + 2 * pad
+            self.menu_scale = scale
         menu_x = sw - menu_w - pad
         menu_y = pad
 
@@ -2303,7 +2336,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         "split_orientation": get_persistent_setting(settings, "split-orientation",
                                                     cast=lambda s: str(s).strip().lower(),
                                                     default=DEFAULT_SPLIT_ORIENT),
-        "julia_viewport": list(DEFAULT_JULIA_VIEWPORT),
+        "julia_viewport": _parse_julia_viewport(settings),
         "show_grid": get_persistent_setting(settings, "show-grid",
                                             cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
                                             default=DEFAULT_SHOW_GRID),
@@ -2468,16 +2501,13 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     dist_ju = math.sqrt((mpx - px) ** 2 + (mpy - py) ** 2)
                     click_targets.append((dist_ju, "julia", set_blend))
 
-                    # Julia constant c_J (green) — check on all visible panes
+                    # Julia constant c_J (green) — only check on Mandelbrot pane in split mode
+                    # (c_J is a Mandelbrot parameter-plane point)
                     cx, cy = state.get("julia_c", DEFAULT_JULIA_C)
                     if _pane_bounds is not None:
-                        dists_cj = []
-                        for _p in _pane_bounds:
-                            _px, _py = _complex_to_screen_pane(cx, cy, pane=_p, width=width, height=height,
-                                                               xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
-                            _dist = math.sqrt((mpx - _px) ** 2 + (mpy - _py) ** 2)
-                            dists_cj.append(_dist)
-                        dist_cj = min(dists_cj)
+                        px, py = _complex_to_screen_pane(cx, cy, pane=mb_pane, width=width, height=height,
+                                                         xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+                        dist_cj = math.sqrt((mpx - px) ** 2 + (mpy - py) ** 2)
                     else:
                         px, py = _complex_to_screen_pane(cx, cy, width=width, height=height,
                                                         xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
@@ -2612,8 +2642,12 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                             _zoom_pane = _p
                             break
                     if _zoom_pane is not None:
-                        p_xmin, p_xmax = _zoom_pane["p_xmin"], _zoom_pane["p_xmax"]
-                        p_ymin, p_ymax = _zoom_pane["p_ymin"], _zoom_pane["p_ymax"]
+                        if _zoom_pane["is_julia"]:
+                            jv = state["julia_viewport"]
+                            p_xmin, p_xmax, p_ymin, p_ymax = jv[0], jv[1], jv[2], jv[3]
+                        else:
+                            p_xmin, p_xmax = xmin, xmax
+                            p_ymin, p_ymax = ymin, ymax
                         p_w, p_h = _zoom_pane["w"], _zoom_pane["h"]
                         p_x0, p_y0 = _zoom_pane["x"], _zoom_pane["y"]
                         rel_x = (mouse_px - p_x0) / p_w if p_w > 0 else 0.5
@@ -2635,6 +2669,9 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                         ymin = p_ymin
                         ymax = p_ymax
                     _dbg(f"MOUSEWHEEL (split) y={event.y} pos={pygame.mouse.get_pos()}")
+                    interacting = True
+                    interact_timer = pygame.time.get_ticks()
+                    needs_render = True
                 else:
                     cx = xmin + (xmax - xmin) * mouse_px / width
                     cy = ymax - (ymax - ymin) * mouse_py / height
@@ -3065,10 +3102,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--iter", type=int, default=None, help="Max iterations")
     parser.add_argument("--color", type=str, default=None,
-                        choices=["fire", "deep-sea", "arctic", "ocean", "twilight",
-                                 "magenta", "aurora", "forest", "grayscale",
-                                 "monochrome", "sunset", "amber", "ice",
-                                 "jade", "copper", "violet"], help="Color palette preset")
+                        choices=PALETTE_NAMES, help="Color palette preset")
     parser.add_argument("--gpu", action="store_true", help="Use CUDA GPU if available")
     parser.add_argument("--no-gpu", action="store_true", help="Force CPU rendering")
     parser.add_argument("--julia", action="store_true", help="Render Julia set (equivalent to --blend 1.0)")

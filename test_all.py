@@ -825,6 +825,13 @@ state["show_c_point"] = True
 overlay._do_action("show_c_point", "click", state)
 test("MenuOverlay: toggle show_c_point", state["show_c_point"] is False)
 
+# Test auto_iter toggle
+state["auto_iter"] = True
+overlay._do_action("auto_iter", "click", state)
+test("MenuOverlay: toggle auto_iter (ON->OFF)", state["auto_iter"] is False)
+overlay._do_action("auto_iter", "click", state)
+test("MenuOverlay: toggle auto_iter (OFF->ON)", state["auto_iter"] is True)
+
 # Test c-point color sliders
 state["c_point_color"] = [0, 0.784, 0]  # [0, 200/255, 0]
 overlay._do_action("c_color_r", "plus", state)
