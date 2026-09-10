@@ -67,7 +67,8 @@ DEFAULT_KEYBINDS = {
     "reset-orbit-point-j":      "alt+i",
     "reset-julia-c":            "ctrl+shift+i",
     "swap-orbit-point":         "x",
-    "cycle-palette":            "tab",
+    "cycle-palette": "tab",
+    "load-palette": "shift+tab",
     "animate-zoom":             "shift+z",
     "reset-settings":           "backspace",
     "toggle-auto-iter":         "f1",
@@ -171,6 +172,7 @@ PALETTE_NAMES = [
 ]
 
 SETTINGS_FILE = "mandelbrot-testing-playground.yaml"
+PALETTE_FILE = "palettes.txt"
 
 MAX_ITER_CAP = 4096
 MIN_ITER_CAP = 32
@@ -217,6 +219,56 @@ def _parse_julia_viewport(settings):
         except (ValueError, TypeError):
             pass
     return list(DEFAULT_JULIA_VIEWPORT)
+
+
+def load_palette_file(filename):
+    """Load custom gradient palettes from a text file.
+
+    Format: <palette_name> <position> <r> <g> <b>
+    where position is [0, 1] and r/g/b are [0, 255].
+    Returns dict mapping palette name to list of (position, (r, g, b)) stops.
+    """
+    palettes = {}
+    if not os.path.exists(filename):
+        return palettes
+    with open(filename) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) >= 5:
+                name = parts[0]
+                try:
+                    pos = float(parts[1])
+                    r = float(parts[2]) / 255.0
+                    g = float(parts[3]) / 255.0
+                    b = float(parts[4]) / 255.0
+                    palettes.setdefault(name, []).append((pos, (r, g, b)))
+                except (ValueError, IndexError):
+                    continue
+    # Sort stops by position for each palette
+    for name in palettes:
+        palettes[name].sort(key=lambda s: s[0])
+    return palettes
+
+
+def _load_custom_palettes():
+    """Load custom gradient palettes from PALETTE_FILE if it exists."""
+    try:
+        return load_palette_file(PALETTE_FILE)
+    except Exception:
+        return {}
+
+
+_CUSTOM_PALETTES = None
+
+
+def get_custom_palettes():
+    global _CUSTOM_PALETTES
+    if _CUSTOM_PALETTES is None:
+        _CUSTOM_PALETTES = _load_custom_palettes()
+    return _CUSTOM_PALETTES
 
 
 def get_keybind(settings, name, default_key):
@@ -328,6 +380,74 @@ def make_colortable(rgb_thetas):
         r, g, b = _hsv_to_rgb_vec(hue, np.full_like(hue, sat), val)
 
     return np.clip(np.column_stack((r, g, b)), 0.0, 1.0).astype(np.float32)
+
+
+def _make_gradient_colortable(stops):
+    """Build a colortable from multi-stop RGB gradient.
+
+    Args:
+        stops: list of (position, (r, g, b)) where position is in [0, 1].
+               Each channel value is in [0, 1].
+
+    Returns:
+        np.ndarray of shape (NCOL, 3) with float32 values in [0, 1].
+    """
+    x = np.linspace(0.0, 1.0, NCOL)
+    positions = np.array([s[0] for s in stops], dtype=np.float64)
+    colors = np.array([s[1] for s in stops], dtype=np.float64)
+    positions = np.clip(positions, 0.0, 1.0)
+    colors = np.clip(colors, 0.0, 1.0)
+
+    if len(stops) == 1:
+        r = np.full(NCOL, colors[0, 0])
+        g = np.full(NCOL, colors[0, 1])
+        b = np.full(NCOL, colors[0, 2])
+    else:
+        r = np.interp(x, positions, colors[:, 0])
+        g = np.interp(x, positions, colors[:, 1])
+        b = np.interp(x, positions, colors[:, 2])
+
+    return np.column_stack((r, g, b)).astype(np.float32)
+
+
+def _hsv_to_rgb_scalar(h, s, v):
+    """Convert a single HSV color (h,s,v in [0,1]) to RGB tuple."""
+    if s == 0.0:
+        return (v, v, v)
+    h6 = h * 6.0
+    sector = int(h6) % 6
+    f = h6 - int(h6)
+    p = v * (1.0 - s)
+    q = v * (1.0 - s * f)
+    t = v * (1.0 - s * (1.0 - f))
+    if sector == 0:
+        return (v, t, p)
+    elif sector == 1:
+        return (q, v, p)
+    elif sector == 2:
+        return (p, v, t)
+    elif sector == 3:
+        return (p, q, v)
+    elif sector == 4:
+        return (t, p, v)
+    else:
+        return (v, p, q)
+
+
+def palette_to_gradient_stops(rgb_thetas, n_stops=16):
+    """Convert HSV palette (hue_start, hue_end, sat) to gradient stops.
+
+    Uses the same value function as make_colortable.
+    """
+    stops = []
+    for i in range(n_stops):
+        pos = i / (n_stops - 1)
+        hue = (rgb_thetas[0] + (rgb_thetas[1] - rgb_thetas[0]) * pos) % 1.0
+        sat = rgb_thetas[2]
+        val = 0.15 + 0.7 * (0.5 + 0.5 * math.sin(2 * math.pi * (pos + 0.25)))
+        r, g, b = _hsv_to_rgb_scalar(hue, sat, val)
+        stops.append((pos, (r, g, b)))
+    return stops
 
 
 @njit
@@ -620,7 +740,11 @@ def build_render_params(state, maxiter=None, use_julia=False):
     rgb_thetas = list(state["rgb_thetas"])
     phase = state["phase"]
     rgb_with_phase = [rgb_thetas[0] + phase, rgb_thetas[1] + phase, rgb_thetas[2]]
-    colortable = make_colortable(np.array(rgb_with_phase, dtype=np.float64))
+    gradient_stops = state.get("gradient_stops")
+    if gradient_stops is not None:
+        colortable = _make_gradient_colortable(gradient_stops)
+    else:
+        colortable = make_colortable(np.array(rgb_with_phase, dtype=np.float64))
     light = np.array([
         state["light_angle"] * 2 * math.pi,
         state["light_azim"] * math.pi / 2,
@@ -1395,7 +1519,8 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
                    state.get("step_s", 0.0), state.get("light_angle", DEFAULT_LIGHT_ANGLE),
                    state.get("light_azim", DEFAULT_LIGHT_AZIM), state.get("light_i", DEFAULT_LIGHT_I),
                    state.get("k_ambiant", DEFAULT_K_AMBIANT), state.get("k_diffuse", DEFAULT_K_DIFFUSE),
-                   state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS))
+                   state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS),
+                   tuple(state.get("gradient_stops")) if state.get("gradient_stops") else None)
             cached = _SPLIT_PANE_CACHE.get(key)
             if cached is not None and cached[0] == pane["p_xmin"] and cached[1] == pane["p_xmax"] \
                     and cached[2] == pane["p_ymin"] and cached[3] == pane["p_ymax"] \
@@ -1427,14 +1552,15 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
     mb_rgb = None
     if mb_alpha > 0.0:
         mb_key = (tuple(state["rgb_thetas"]), state["phase"],
-                  state["use_gpu"] and _CUDA_AVAILABLE,
-                  max_iter, False, tuple(state.get("julia_c", DEFAULT_JULIA_C)),
-                  state.get("smooth", True), state.get("fxaa", False),
-                  state.get("stripe_s", 0.0), state.get("stripe_sig", 0.9),
-                  state.get("step_s", 0.0), state.get("light_angle", DEFAULT_LIGHT_ANGLE),
-                  state.get("light_azim", DEFAULT_LIGHT_AZIM), state.get("light_i", DEFAULT_LIGHT_I),
-                  state.get("k_ambiant", DEFAULT_K_AMBIANT), state.get("k_diffuse", DEFAULT_K_DIFFUSE),
-                  state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS))
+                   state["use_gpu"] and _CUDA_AVAILABLE,
+                   max_iter, False, tuple(state.get("julia_c", DEFAULT_JULIA_C)),
+                   state.get("smooth", True), state.get("fxaa", False),
+                   state.get("stripe_s", 0.0), state.get("stripe_sig", 0.9),
+                   state.get("step_s", 0.0), state.get("light_angle", DEFAULT_LIGHT_ANGLE),
+                   state.get("light_azim", DEFAULT_LIGHT_AZIM), state.get("light_i", DEFAULT_LIGHT_I),
+                   state.get("k_ambiant", DEFAULT_K_AMBIANT), state.get("k_diffuse", DEFAULT_K_DIFFUSE),
+                   state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS),
+                   tuple(state.get("gradient_stops")) if state.get("gradient_stops") else None)
         mb_params = _RENDER_CACHE.get(mb_key)
         if mb_params is None:
             mb_params = build_render_params(state, maxiter=max_iter, use_julia=False)
@@ -1444,14 +1570,15 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
 
     if set_blend > 0.0:
         ju_key = (tuple(state["rgb_thetas"]), state["phase"],
-                  state["use_gpu"] and _CUDA_AVAILABLE,
-                  max_iter, True, tuple(state.get("julia_c", DEFAULT_JULIA_C)),
-                  state.get("smooth", True), state.get("fxaa", False),
-                  state.get("stripe_s", 0.0), state.get("stripe_sig", 0.9),
-                  state.get("step_s", 0.0), state.get("light_angle", DEFAULT_LIGHT_ANGLE),
-                  state.get("light_azim", DEFAULT_LIGHT_AZIM), state.get("light_i", DEFAULT_LIGHT_I),
-                  state.get("k_ambiant", DEFAULT_K_AMBIANT), state.get("k_diffuse", DEFAULT_K_DIFFUSE),
-                  state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS))
+                   state["use_gpu"] and _CUDA_AVAILABLE,
+                   max_iter, True, tuple(state.get("julia_c", DEFAULT_JULIA_C)),
+                   state.get("smooth", True), state.get("fxaa", False),
+                   state.get("stripe_s", 0.0), state.get("stripe_sig", 0.9),
+                   state.get("step_s", 0.0), state.get("light_angle", DEFAULT_LIGHT_ANGLE),
+                   state.get("light_azim", DEFAULT_LIGHT_AZIM), state.get("light_i", DEFAULT_LIGHT_I),
+                   state.get("k_ambiant", DEFAULT_K_AMBIANT), state.get("k_diffuse", DEFAULT_K_DIFFUSE),
+                   state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS),
+                   tuple(state.get("gradient_stops")) if state.get("gradient_stops") else None)
         ju_params = _RENDER_CACHE.get(ju_key)
         if ju_params is None:
             ju_params = build_render_params(state, maxiter=max_iter, use_julia=True)
@@ -1671,7 +1798,19 @@ class MenuOverlay:
             state["palette_index"] = (state.get("palette_index", 0) + 1) % len(COLOR_THETAS)
             t = COLOR_THETAS[state["palette_index"]]
             state["rgb_thetas"] = [t[0], t[1], t[2]]
+            state.pop("gradient_stops", None)
             return True
+        elif key == "load-palette":
+            _custom = get_custom_palettes()
+            if _custom:
+                _names = list(_custom.keys())
+                _idx = state.get("_palette_file_idx", 0) % len(_names)
+                _name = _names[_idx]
+                state["gradient_stops"] = [tuple(s) for s in _custom[_name]]
+                state["palette_index"] = -1
+                state["_palette_file_idx"] = (_idx + 1) % len(_names)
+                return True
+            return False
         elif key == "toggle-split":
             cur = state.get("split_mode", DEFAULT_SPLIT_MODE)
             _prev_blend = state.get("set_blend", 0.0)
@@ -1715,8 +1854,9 @@ class MenuOverlay:
             state.get("split_mode", DEFAULT_SPLIT_MODE), state.get("set_blend", 0.0),
             state.get("orbit_point_m", DEFAULT_ORBIT_POINT_M)[0], state.get("orbit_point_m", DEFAULT_ORBIT_POINT_M)[1],
             state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)[0], state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)[1],
-            state.get("julia_c", DEFAULT_JULIA_C)[0], state.get("julia_c", DEFAULT_JULIA_C)[1],
-        )
+             state.get("julia_c", DEFAULT_JULIA_C)[0], state.get("julia_c", DEFAULT_JULIA_C)[1],
+             tuple(state.get("gradient_stops")) if state.get("gradient_stops") else None,
+         )
         if self._menu_cache is not None and self._menu_cache[0] == _cache_key:
             _surf, _button_rects, _ax, _ay = self._menu_cache[1]
             screen.blit(_surf, (_ax, _ay))
@@ -1815,6 +1955,7 @@ class MenuOverlay:
             ("reset-colors", "reset colors (RGB+phase)", tuple(int(max(10, min(255, v * 90))) for v in _ct[NCOL // 2])),
             ("reset-all", "reset all settings [BS]", tuple(int(max(10, min(255, v * 90))) for v in _ct[NCOL // 2])),
             ("cycle-palette", f"palette: {palette_name} [TAB]", _ct_dim),
+            ("load-palette", "load custom palette", tuple(int(max(10, min(255, v * 85))) for v in _ct[-1])),
             ("toggle-split", "split: h/v/overlay [S]", tuple(int(max(10, min(255, v * 80))) for v in _ct[3 * NCOL // 4])),
             ("show-keybinds", "show keybinds [K]", tuple(int(max(10, min(255, v * 80))) for v in _ct[3 * NCOL // 4])),
         ]
@@ -2862,9 +3003,27 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     state["palette_index"] = (state.get("palette_index", 0) + 1) % len(COLOR_THETAS)
                     t = COLOR_THETAS[state["palette_index"]]
                     state["rgb_thetas"] = [t[0], t[1], t[2]]
+                    state.pop("gradient_stops", None)
                     _RENDER_CACHE.clear()
+                    _SPLIT_PANE_CACHE.clear()
                     force_full_render = True
                     needs_render = True
+
+                elif action == "load-palette":
+                    _custom = get_custom_palettes()
+                    if _custom:
+                        _names = list(_custom.keys())
+                        _idx = state.get("_palette_file_idx", 0) % len(_names)
+                        _name = _names[_idx]
+                        state["gradient_stops"] = [list(s) for s in _custom[_name]]
+                        state["rgb_thetas"] = list(DEFAULT_RGB_THETAS)
+                        state["palette_index"] = -1
+                        state["_palette_file_idx"] = (_idx + 1) % len(_names)
+                        _RENDER_CACHE.clear()
+                        _SPLIT_PANE_CACHE.clear()
+                        force_full_render = True
+                        needs_render = True
+                        print(f"[palette] loaded custom palette: {_name}")
 
                 elif action == "animate-zoom":
                     _anim_path = _record_animation(
@@ -3107,7 +3266,14 @@ if __name__ == "__main__":
     parser.add_argument("--no-gpu", action="store_true", help="Force CPU rendering")
     parser.add_argument("--julia", action="store_true", help="Render Julia set (equivalent to --blend 1.0)")
     parser.add_argument("--blend", type=float, default=None, help="Blend factor: 0=MB only, 1=Julia only")
+    parser.add_argument("--palette-file", type=str, default=None,
+                        help="Path to custom gradient palette file (default: palettes.txt)")
     args = parser.parse_args()
+
+    # If --palette-file specified, load custom palettes
+    if args.palette_file:
+        _CUSTOM_PALETTES = load_palette_file(args.palette_file)
+        print(f"[palette] loaded {len(_CUSTOM_PALETTES)} custom palettes from {args.palette_file}")
     settings = load_settings(SETTINGS_FILE)
     # --julia is backward compatible: equivalent to --blend 1.0
     if args.julia and args.blend is None:

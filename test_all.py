@@ -133,6 +133,27 @@ test("Grayscale: channels equal",
      np.max(np.abs(ct_gray[:, 1] - ct_gray[:, 2])) < 0.01)
 
 # ===========================================================================
+# 2.5 _make_gradient_colortable
+# ===========================================================================
+print("\n--- _make_gradient_colortable ---")
+
+ct_grad = mb._make_gradient_colortable([
+    (0.0, (1.0, 0.0, 0.0)),
+    (1.0, (0.0, 0.0, 1.0)),
+])
+test("Gradient: shape correct", ct_grad.shape == (4096, 3))
+test("Gradient: start is red", ct_grad[0, 0] > 0.9 and ct_grad[0, 1] < 0.1 and ct_grad[0, 2] < 0.1)
+test("Gradient: end is blue", ct_grad[-1, 2] > 0.9 and ct_grad[-1, 0] < 0.1 and ct_grad[-1, 1] < 0.1)
+test("Gradient: values in [0,1]", ct_grad.min() >= 0 and ct_grad.max() <= 1.0 + 1e-6)
+
+ct_3 = mb._make_gradient_colortable([
+    (0.0, (1.0, 0.0, 0.0)),
+    (0.5, (0.0, 1.0, 0.0)),
+    (1.0, (0.0, 0.0, 1.0)),
+])
+test("3-stop gradient: midpoint is green", ct_3[2048, 1] > 0.9)
+
+# ===========================================================================
 # 3. _hsv_to_rgb_vec
 # ===========================================================================
 print("\n--- _hsv_to_rgb_vec ---")
@@ -931,7 +952,8 @@ key = (tuple(state["rgb_thetas"]), state["phase"],
        state.get("step_s", 0.0), state.get("light_angle", mb.DEFAULT_LIGHT_ANGLE),
        state.get("light_azim", mb.DEFAULT_LIGHT_AZIM), state.get("light_i", mb.DEFAULT_LIGHT_I),
        state.get("k_ambiant", mb.DEFAULT_K_AMBIANT), state.get("k_diffuse", mb.DEFAULT_K_DIFFUSE),
-       state.get("k_specular", mb.DEFAULT_K_SPECULAR), state.get("shininess", mb.DEFAULT_SHININESS))
+        state.get("k_specular", mb.DEFAULT_K_SPECULAR), state.get("shininess", mb.DEFAULT_SHININESS),
+        tuple(state.get("gradient_stops")) if state.get("gradient_stops") else None)
 test("render_to_surface populates cache", key in mb._RENDER_CACHE)
 
 # ===========================================================================
