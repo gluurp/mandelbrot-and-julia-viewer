@@ -309,7 +309,7 @@ def make_colortable(rgb_thetas):
     else:
         r, g, b = _hsv_to_rgb_vec(hue, np.full_like(hue, sat), val)
 
-    return np.column_stack((r, g, b)).astype(np.float32)
+    return np.clip(np.column_stack((r, g, b)), 0.0, 1.0).astype(np.float32)
 
 
 @njit
@@ -710,7 +710,7 @@ def _blit_surface_clamped(screen, surface, dx, dy, screen_w, screen_h):
         screen.blit(surface, (dx_adj, dy_adj), area=(sx, sy, blit_w, blit_h))
 
 
-@njit(cache=True)
+@njit
 def compute_orbit_numba(sx, sy, max_iter, use_julia, julia_c_re, julia_c_im):
     """Numba-accelerated orbit computation. Returns (n_points, points_array)."""
     points = np.empty((max_iter + 1, 2))
@@ -864,7 +864,9 @@ def _orbit_pixel_color(i, smooth, colortable, ncycle):
     r = colortable[col_i, 0]
     g = colortable[col_i, 1]
     b = colortable[col_i, 2]
-    return (int(r * 255), int(g * 255), int(b * 255))
+    return (max(0, min(255, int(r * 255))),
+            max(0, min(255, int(g * 255))),
+            max(0, min(255, int(b * 255))))
 
 
 def _draw_grid(screen, state, xmin, xmax, ymin, ymax, width, height,
@@ -1007,7 +1009,9 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height,
         if show_lines:
             for i in range(len(screen_pts) - 1):
                 color = _orbit_pixel_color(i + 1, smooth, colortable, ncycle)
-                color = (int(color[0] * opacity), int(color[1] * opacity), int(color[2] * opacity))
+                color = (max(0, min(255, int(color[0] * opacity))),
+                         max(0, min(255, int(color[1] * opacity))),
+                         max(0, min(255, int(color[2] * opacity))))
                 clipped = _liang_barsky_clip(
                     screen_pts[i][0], screen_pts[i][1],
                     screen_pts[i + 1][0], screen_pts[i + 1][1],
@@ -1020,7 +1024,9 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height,
         for i in range(len(screen_pts)):
             if 0 <= screen_pts[i][0] <= pw and 0 <= screen_pts[i][1] <= ph:
                 color = _orbit_pixel_color(i, smooth, colortable, ncycle)
-                color = (int(color[0] * opacity), int(color[1] * opacity), int(color[2] * opacity))
+                color = (max(0, min(255, int(color[0] * opacity))),
+                         max(0, min(255, int(color[1] * opacity))),
+                         max(0, min(255, int(color[2] * opacity))))
                 radius = max(1, int(pt_size * (0.5 + 0.5 * i / len(screen_pts))))
                 pygame.draw.circle(screen, color,
                                    (px0 + int(screen_pts[i][0]), py0 + int(screen_pts[i][1])), radius)
