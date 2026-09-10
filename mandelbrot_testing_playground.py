@@ -710,38 +710,54 @@ def _blit_surface_clamped(screen, surface, dx, dy, screen_w, screen_h):
         screen.blit(surface, (dx_adj, dy_adj), area=(sx, sy, blit_w, blit_h))
 
 
-@njit
-def compute_orbit(sx, sy, max_iter, use_julia=False, julia_c_re=0.0, julia_c_im=0.0):
-    """Compute the orbit of point (sx, sy).
-    Mandelbrot mode: z0=0, c=(sx,sy) → z_{n+1} = z_n^2 + c
-    Julia mode: z0=(sx,sy), c=(julia_c_re, julia_c_im) → z_{n+1} = z_n^2 + c_J
-    Returns array of (x, y) points."""
-    points = np.zeros((max_iter + 1, 2))
+@njit(cache=True)
+def compute_orbit_numba(sx, sy, max_iter, use_julia, julia_c_re, julia_c_im):
+    """Numba-accelerated orbit computation. Returns (n_points, points_array)."""
+    points = np.empty((max_iter + 1, 2))
     points[0, 0] = sx
     points[0, 1] = sy
     if use_julia:
-        zx, zy = sx, sy
-        const_x, const_y = julia_c_re, julia_c_im
+        zx = sx
+        zy = sy
+        const_x = julia_c_re
+        const_y = julia_c_im
     else:
-        zx, zy = 0.0, 0.0
-        const_x, const_y = sx, sy
+        zx = 0.0
+        zy = 0.0
+        const_x = sx
+        const_y = sy
     for i in range(max_iter):
         new_zx = zx * zx - zy * zy + const_x
-        new_zy = 2 * zx * zy + const_y
-        zx, zy = new_zx, new_zy
+        new_zy = 2.0 * zx * zy + const_y
+        zx = new_zx
+        zy = new_zy
         points[i + 1, 0] = zx
         points[i + 1, 1] = zy
         if zx * zx + zy * zy > 4.0:
-            return points[:i + 2]
-    return points
+            return i + 2, points[:i + 2]
+    return max_iter + 1, points
 
+
+def compute_orbit(sx, sy, max_iter, use_julia=False, julia_c_re=0.0, julia_c_im=0.0):
+    """Compute the orbit of point (sx, sy).
+
+    Mandelbrot mode: z0=0, c=(sx,sy) → z_{n+1} = z_n^2 + c
+    Julia mode: z0=(sx,sy), c=(julia_c_re, julia_c_im) → z_{n+1} = z_n^2 + c_J
+    Returns array of (x, y) points."""
+    n, points = compute_orbit_numba(sx, sy, max_iter, use_julia, julia_c_re, julia_c_im)
+    return points[:n]
 
 def _mandelbrot_to_screen_all(points, xmin, xmax, ymin, ymax, width, height):
     """Convert all Mandelbrot coordinates to screen coordinates (including off-screen)."""
+    if len(points) == 0:
+        return []
+    pts = np.asarray(points, dtype=np.float64)
     dx = width / (xmax - xmin) if (xmax - xmin) != 0 else 1.0
     dy = height / (ymax - ymin) if (ymax - ymin) != 0 else 1.0
-    return [((points[i, 0] - xmin) * dx, (ymax - points[i, 1]) * dy)
-            for i in range(len(points))]
+    sx = (pts[:, 0] - xmin) * dx
+    sy = (ymax - pts[:, 1]) * dy
+    return np.column_stack((sx, sy))
+
 
 
 def _liang_barsky_clip(x0, y0, x1, y1, xmin, ymin, xmax, ymax):
@@ -978,6 +994,14 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height,
         if bxmin is None:
             bxmin, bxmax, bymin, bymax = xmin, xmax, ymin, ymax
         points = compute_orbit(sx, sy, max_iter, use_julia, c_re, c_im)
+        orb_key = (sx, sy, max_iter, use_julia, c_re, c_im)
+        _cached_orb = _ORBIT_CACHE.get(orb_key)
+        if _cached_orb is None:
+            if len(_ORBIT_CACHE) > 256:
+                _ORBIT_CACHE.clear()
+            _cached_orb = points
+            _ORBIT_CACHE[orb_key] = points
+        points = _cached_orb
         screen_pts = _mandelbrot_to_screen_all(points, bxmin, bxmax, bymin, bymax, pw, ph)
 
         if show_lines:
@@ -1256,6 +1280,7 @@ def run_single_mode(settings):
 _RENDER_CACHE: dict = {}
 _SPLIT_PANE_CACHE: dict = {}
 _ORBIT_COLOR_CACHE: dict = {}
+_ORBIT_CACHE: dict = {}
 _PERF_STATS = {"render_count": 0, "total_render_ms": 0.0}
 
 
@@ -1373,7 +1398,6 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
     set_blend = max(0.0, min(1.0, state.get("set_blend", 0.0)))
     mb_alpha = 1.0 - set_blend
 
-    _RENDER_CACHE.clear()
     used_gpu = False
 
     mb_rgb = None
@@ -1439,6 +1463,7 @@ class MenuOverlay:
         self.button_rects = {}
         self.menu_scale = 1.0
         self._keybind_cache = None
+        self._menu_cache = None
 
     def toggle(self):
         self.active = not self.active
@@ -1455,11 +1480,14 @@ class MenuOverlay:
                     if key == "show-keybinds":
                         self.show_keybinds = not self.show_keybinds
                         self._keybind_cache = None
+                        self._menu_cache = None
                         return True, False
                     self._do_action(key, rtype, state)
                     if key in ("grid_opacity", "show_grid"):
+                        self._menu_cache = None
                         return True, False
                     return True, True
+        self._menu_cache = None
         return False, False
 
     def _unpack_rects(self, rect_info, key):
@@ -1645,6 +1673,34 @@ class MenuOverlay:
         sw, sh = screen.get_size()
         scale = max(0.5, min(1.5, min(sw / 1920, sh / 1080)))
         self.menu_scale = scale
+
+        _cache_key = (
+            scale, state["max_iter"], int(state["stripe_s"]), int(state["step_s"]),
+            state["phase"], state["light_angle"], state["light_azim"], state["light_i"],
+            state["k_ambiant"], state["k_diffuse"], state["k_specular"], state["shininess"],
+            state["rgb_thetas"][0], state["rgb_thetas"][1], state["rgb_thetas"][2],
+            state["orbit_max_iter"], state.get("orbit_point_size", 3),
+            state.get("set_blend", 0.0), state.get("grid_opacity", 0.3),
+            state.get("smooth", True), state.get("fxaa", False),
+            state.get("use_gpu", False) and _CUDA_AVAILABLE,
+            state.get("show_orbits_m", True), state.get("show_orbits_j", True),
+            state.get("show_orbit_lines_m", True), state.get("show_orbit_lines_j", True),
+            state.get("show_grid", True), state.get("show_c_point", True),
+            state.get("c_point_size", 5), state.get("c_point_color", DEFAULT_C_POINT_COLOR)[0],
+            state.get("c_point_color", DEFAULT_C_POINT_COLOR)[1], state.get("c_point_color", DEFAULT_C_POINT_COLOR)[2],
+            state.get("split_mode", DEFAULT_SPLIT_MODE), state.get("set_blend", 0.0),
+            state.get("orbit_point_m", DEFAULT_ORBIT_POINT_M)[0], state.get("orbit_point_m", DEFAULT_ORBIT_POINT_M)[1],
+            state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)[0], state.get("orbit_point_j", DEFAULT_ORBIT_POINT_J)[1],
+            state.get("julia_c", DEFAULT_JULIA_C)[0], state.get("julia_c", DEFAULT_JULIA_C)[1],
+        )
+        if self._menu_cache is not None and self._menu_cache[0] == _cache_key:
+            _surf, _button_rects, _ax, _ay = self._menu_cache[1]
+            screen.blit(_surf, (_ax, _ay))
+            self.button_rects = _button_rects
+            if self.show_keybinds and self._keybind_cache is not None and self._keybind_cache[0] == scale:
+                _ksurf, _, _kw, _kh = self._keybind_cache[1]
+                screen.blit(_ksurf, (max(_ax - _kw - 10, 10), _ay))
+            return
         s = lambda v: max(1, int(v * scale))
         pad = s(10)
         btn_w = s(36)
@@ -1806,6 +1862,7 @@ class MenuOverlay:
             ry += row_h
 
         screen.blit(surf, (menu_x, menu_y))
+        self._menu_cache = (_cache_key, (surf, dict(self.button_rects), menu_x, menu_y))
 
         if self.show_keybinds:
             self._draw_keybinds(screen, scaled_font, 0, 0, keybinds, scale)
@@ -2629,6 +2686,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     state["use_gpu"] = not (state["use_gpu"] and _CUDA_AVAILABLE)
                     _RENDER_CACHE.clear()
                     _SPLIT_PANE_CACHE.clear()
+                    _ORBIT_CACHE.clear()
                     force_full_render = True
                     needs_render = True
 
