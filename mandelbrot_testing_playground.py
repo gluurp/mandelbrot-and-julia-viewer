@@ -5,6 +5,7 @@ import sys
 import time
 import warnings
 
+import imageio.v2 as imageio
 import numpy as np
 from numba import njit, prange, float64, int64, config
 
@@ -62,8 +63,12 @@ DEFAULT_KEYBINDS = {
     "grid-opac-down": "ctrl+g",
     "reset-orbit-point": "i",
     "reset-orbit-points": "shift+i",
+    "reset-orbit-point-m": "ctrl+i",
+    "reset-orbit-point-j": "alt+i",
+    "reset-julia-c": "ctrl+shift+i",
     "swap-orbit-point": "x",
     "cycle-palette": "tab",
+    "animate-zoom": "shift+z",
     "reset-settings": "backspace",
     "iter-up": "=",
     "iter-down": "-",
@@ -112,6 +117,7 @@ DEFAULT_SHOW_ORBITS_M   = True
 DEFAULT_SHOW_ORBITS_J   = True
 DEFAULT_SPLIT_MODE      = None
 DEFAULT_SPLIT_ORIENT    = "horizontal"
+DEFAULT_JULIA_VIEWPORT  = (-1.5, 1.5, -1.5, 1.5)  # independent view bounds for Julia pane
 DEFAULT_SHOW_GRID       = True
 DEFAULT_GRID_OPACITY    = 0.3
 NCOL                    = 2 ** 12
@@ -133,6 +139,10 @@ COLOR_THETAS = [
     [0.300, 0.450, 0.55],  # jade      — green -> yellow-green
     [0.000, 0.083, 0.45],  # copper    — red-orange -> orange (muted)
     [0.667, 0.833, 0.85],  # violet    — blue -> magenta
+    [0.400, 0.800, 0.30],  # neon      — electric green -> blue
+    [0.167, 0.000, 0.95],  # lava      — deep red -> bright yellow
+    [0.750, 0.100, 0.60],  # cosmic    — purple -> pink
+    [0.083, 0.500, 0.83],  # teal      — blue -> green
 ]
 DEFAULT_PALETTE_INDEX = 0
 PALETTE_NAMES = [
@@ -151,10 +161,20 @@ PALETTE_NAMES = [
     "ice",
     "jade",
     "copper",
-    "violet"
+    "violet",
+    "neon",
+    "lava",
+    "cosmic",
+    "teal",
 ]
 
 SETTINGS_FILE = "mandelbrot-testing-playground.yaml"
+
+MAX_ITER_CAP = 4096
+MIN_ITER_CAP = 32
+ZOOM_BASE_ITER = 64
+ANIM_FPS = 30
+ANIM_DURATION = 10.0
 
 
 def load_settings(filename):
@@ -847,7 +867,11 @@ def _draw_grid(screen, state, xmin, xmax, ymin, ymax, width, height,
         return
 
     spacing = _compute_grid_spacing(xmin, xmax, ymin, ymax, width, height)
-    color = (int(200 * opacity), int(200 * opacity), int(200 * opacity), int(255 * opacity))
+    grid_val = int(255 * opacity)
+    color = (grid_val, grid_val, grid_val)
+    blend = pygame.BLEND_RGB_ADD
+
+    grid_surf = pygame.Surface((width, height), pygame.SRCALPHA)
 
     start_x = math.floor(xmin / spacing) * spacing
     start_y = math.floor(ymin / spacing) * spacing
@@ -859,15 +883,53 @@ def _draw_grid(screen, state, xmin, xmax, ymin, ymax, width, height,
     while x <= xmax:
         px = int(origin_x + (x - xmin) * inv_rx)
         if 0 <= px <= origin_x + width:
-            pygame.draw.line(screen, color, (px, origin_y), (px, origin_y + height), 1)
+            pygame.draw.line(grid_surf, color, (px, 0), (px, height), 1)
         x += spacing
 
     y = start_y
     while y <= ymax:
         py = int(origin_y + (ymax - y) * inv_ry)
         if 0 <= py <= origin_y + height:
-            pygame.draw.line(screen, color, (origin_x, py), (origin_x + width, py), 1)
-        y += spacing
+            pygame.draw.line(grid_surf, color, (0, py), (width, py), 1)
+    y += spacing
+    screen.blit(grid_surf, (origin_x, origin_y), special_flags=blend)
+
+
+def _draw_orbit_highlight(screen, state, pane, drag_mode,
+                          width, height, julia_c, orbit_pt_m, orbit_pt_j):
+    """Draw orbit/c-point highlight only on the point being dragged."""
+    if pane is None:
+        return
+    px0 = pane["x"]
+    py0 = pane["y"]
+    pw = pane["w"]
+    ph = pane["h"]
+    bxmin = pane["p_xmin"]
+    bxmax = pane["p_xmax"]
+    bymin = pane["p_ymin"]
+    bymax = pane["p_ymax"]
+
+    def _to_screen(sx, sy):
+        px = int(px0 + (sx - bxmin) / (bxmax - bxmin) * pw) if (bxmax - bxmin) > 0 else px0 + pw // 2
+        py = int(py0 + (bymax - sy) / (bymax - bymin) * ph) if (bymax - bymin) > 0 else py0 + ph // 2
+        return px, py
+
+    if drag_mode == "julia_c":
+        px, py = _to_screen(julia_c[0], julia_c[1])
+        c_size = state.get("c_point_size", DEFAULT_C_POINT_SIZE)
+        c_color = state.get("c_point_color", DEFAULT_C_POINT_COLOR)
+        if 0 <= px - px0 <= pw and 0 <= py - py0 <= ph:
+            pygame.draw.circle(screen, tuple(int(c) for c in c_color), (px, py), max(3, c_size))
+            pygame.draw.circle(screen, (200, 200, 200), (px, py), max(4, c_size + 1), 1)
+    elif drag_mode == "julia":
+        px, py = _to_screen(orbit_pt_j[0], orbit_pt_j[1])
+        pygame.draw.circle(screen, (255, 255, 0), (px, py), 4)
+        pygame.draw.circle(screen, (200, 200, 200), (px, py), 5, 1)
+    else:
+        px, py = _to_screen(orbit_pt_m[0], orbit_pt_m[1])
+        pygame.draw.circle(screen, (255, 255, 0), (px, py), 4)
+        pygame.draw.circle(screen, (200, 200, 200), (px, py), 5, 1)
+
 
 
 def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height,
@@ -889,7 +951,7 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height,
     julia_c = state.get("julia_c", DEFAULT_JULIA_C)
     phase = state.get("phase", 0.0)
 
-    orbit_rgb = list(state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS))
+    orbit_rgb = list(state["rgb_thetas"])
     orbit_rgb_with_phase = [orbit_rgb[0] + phase, orbit_rgb[1] + phase, orbit_rgb[2]]
     orbit_cache_key = (tuple(orbit_rgb), phase)
     if orbit_cache_key not in _ORBIT_COLOR_CACHE:
@@ -897,7 +959,7 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height,
             np.array(orbit_rgb_with_phase, dtype=np.float64))
     colortable = _ORBIT_COLOR_CACHE[orbit_cache_key]
 
-    ncycle = math.sqrt(max_iter)
+    ncycle = math.sqrt(state.get("max_iter", 256))
     smooth = state.get("smooth", True)
     pt_size = state.get("orbit_point_size", 3)
 
@@ -1002,24 +1064,31 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height,
                                bxmin=ju_pane["p_xmin"], bxmax=ju_pane["p_xmax"],
                                bymin=ju_pane["p_ymin"], bymax=ju_pane["p_ymax"])
 
+        # In split mode, c_J (a Mandelbrot parameter-plane point) is only
+        # meaningful on the Mandelbrot pane.  On the Julia pane it would
+        # be misinterpreted as a dynamical-plane coordinate.
         _draw_c_point(julia_c[0], julia_c[1], 1.0, mb_pane)
-        _draw_c_point(julia_c[0], julia_c[1], 1.0, ju_pane)
 
-        if show_mb_orbits or show_ju_orbits:
-            px_sx, px_sy = orbit_pt_m
-            px, py = mb_pane["x"], mb_pane["y"]
-            pw = mb_pane["w"]
-            ph = mb_pane["h"]
-            bxmin = mb_pane["p_xmin"]
-            bxmax = mb_pane["p_xmax"]
-            bymin = mb_pane["p_ymin"]
-            bymax = mb_pane["p_ymax"]
-            px_screen = int((px_sx - bxmin) / (bxmax - bxmin) * pw) if (bxmax - bxmin) > 0 else pw // 2
-            py_screen = int((bymax - px_sy) / (bymax - bymin) * ph) if (bymax - bymin) > 0 else ph // 2
-            bright = 255
-            pygame.draw.circle(screen, (bright, bright, 0), (px + px_screen, py + py_screen), 4)
-            if orbit_hover:
-                pygame.draw.circle(screen, (255, 255, 255), (px + px_screen, py + py_screen), 5, 1)
+        if orbit_drag_mode is not None:
+            dragged_pane = mb_pane if orbit_drag_mode in ("mandelbrot", "julia_c") else ju_pane
+            _draw_orbit_highlight(screen, state, dragged_pane, orbit_drag_mode,
+                                  width, height, julia_c, orbit_pt_m, orbit_pt_j)
+        else:
+            if show_mb_orbits or show_ju_orbits:
+                px_sx, px_sy = orbit_pt_m
+                px, py = mb_pane["x"], mb_pane["y"]
+                pw = mb_pane["w"]
+                ph = mb_pane["h"]
+                bxmin = mb_pane["p_xmin"]
+                bxmax = mb_pane["p_xmax"]
+                bymin = mb_pane["p_ymin"]
+                bymax = mb_pane["p_ymax"]
+                px_screen = int((px_sx - bxmin) / (bxmax - bxmin) * pw) if (bxmax - bxmin) > 0 else pw // 2
+                py_screen = int((bymax - px_sy) / (bymax - bymin) * ph) if (bymax - bymin) > 0 else ph // 2
+                bright = 255
+                pygame.draw.circle(screen, (bright, bright, 0), (px + px_screen, py + py_screen), 4)
+                if orbit_hover:
+                    pygame.draw.circle(screen, (200, 200, 200), (px + px_screen, py + py_screen), 5, 1)
     else:
         if show_mb_orbits and mb_alpha > 0.0:
             _draw_single_orbit(orbit_pt_m[0], orbit_pt_m[1], False,
@@ -1030,7 +1099,7 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height,
             _draw_single_orbit(orbit_pt_j[0], orbit_pt_j[1], True,
                                julia_c[0], julia_c[1], ju_alpha, show_ju_lines)
 
-        if state.get("show_c_point", True):
+        if state.get("show_c_point", True) and set_blend > 0.0:
             cx, cy = julia_c
             cx_px = int((cx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
             cy_px = int((ymax - cy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
@@ -1044,17 +1113,30 @@ def _draw_orbit(screen, state, xmin, xmax, ymin, ymax, width, height,
         mb_point_visible = show_mb_orbits and mb_alpha > 0.0
         ju_point_visible = show_ju_orbits and ju_alpha > 0.0
         if mb_point_visible or ju_point_visible:
-            if mb_point_visible and (not ju_point_visible or mb_alpha >= ju_alpha):
-                px_sx, px_sy = orbit_pt_m
+            if orbit_drag_mode == "julia":
+                show_mb = False
+                show_ju = True
+            elif orbit_drag_mode == "julia_c":
+                show_mb = False
+                show_ju = False
             else:
+                show_mb = mb_point_visible
+                show_ju = ju_point_visible and (not show_mb or mb_alpha < ju_alpha)
+
+            if show_mb:
+                px_sx, px_sy = orbit_pt_m
+            elif show_ju:
                 px_sx, px_sy = orbit_pt_j
-            px = int((px_sx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
-            py = int((ymax - px_sy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
-            bright = int(255 * max(mb_alpha, ju_alpha))
-            pygame.draw.circle(screen, (bright, bright, 0), (px, py), 4)
-            if orbit_hover:
-                outline = int(255 * max(mb_alpha, ju_alpha))
-                pygame.draw.circle(screen, (outline, outline, outline), (px, py), 5, 1)
+            else:
+                px_sx, px_sy = orbit_pt_m
+
+            if show_mb or show_ju:
+                px = int((px_sx - xmin) / (xmax - xmin) * width) if (xmax - xmin) > 0 else width // 2
+                py = int((ymax - px_sy) / (ymax - ymin) * height) if (ymax - ymin) > 0 else height // 2
+                bright = int(255 * max(mb_alpha, ju_alpha))
+                pygame.draw.circle(screen, (bright, bright, 0), (px, py), 4)
+                if orbit_drag_mode is not None:
+                    pygame.draw.circle(screen, (200, 200, 200), (px, py), 5, 1)
 
 
 def compute_image(width, height, xmin, xmax, ymin, ymax, maxiter, params,
@@ -1136,8 +1218,12 @@ def _render_single(width, height, xmin, xmax, ymin, ymax, maxiter, params):
 
 
 def fix_aspect_ratio(x_min, x_max, y_min, y_max, width, height):
+    if height <= 0 or width <= 0:
+        return [x_min, x_max, y_min, y_max]
     x_range = x_max - x_min
     y_range = y_max - y_min
+    if x_range <= 0 or y_range <= 0:
+        return [x_min, x_max, y_min, y_max]
     target_ratio = width / height
     current_ratio = x_range / y_range
     if current_ratio > target_ratio:
@@ -1168,12 +1254,14 @@ def run_single_mode(settings):
 
 
 _RENDER_CACHE: dict = {}
+_SPLIT_PANE_CACHE: dict = {}
 _ORBIT_COLOR_CACHE: dict = {}
 _PERF_STATS = {"render_count": 0, "total_render_ms": 0.0}
 
 
 def _compute_pane_bounds(split_mode, split_orientation,
-                         xmin, xmax, ymin, ymax, width, height):
+                         xmin, xmax, ymin, ymax, width, height,
+                         julia_viewport=None):
     """Compute pane dimensions and aspect-correct view bounds for split mode.
 
     Returns a list of dicts with keys:
@@ -1182,15 +1270,22 @@ def _compute_pane_bounds(split_mode, split_orientation,
       p_ymin, p_ymax
       is_julia           — True for Julia pane, False for Mandelbrot pane
     Returns None when split_mode is None.
+
+    The Julia pane uses julia_viewport (independent dynamical-plane bounds)
+    when provided, falling back to DEFAULT_JULIA_VIEWPORT.
     """
     if split_mode is None:
         return None
+
+    if julia_viewport is None:
+        julia_viewport = DEFAULT_JULIA_VIEWPORT
+    ju_xmin, ju_xmax, ju_ymin, ju_ymax = julia_viewport
 
     if split_orientation == "vertical":
         pane_w = width // 2
         pane_h = height
         mb_bounds = fix_aspect_ratio(xmin, xmax, ymin, ymax, pane_w, pane_h)
-        ju_bounds = fix_aspect_ratio(xmin, xmax, ymin, ymax, pane_w, pane_h)
+        ju_bounds = fix_aspect_ratio(ju_xmin, ju_xmax, ju_ymin, ju_ymax, pane_w, pane_h)
         return [
             {"x": 0, "y": 0, "w": pane_w, "h": pane_h,
              "p_xmin": mb_bounds[0], "p_xmax": mb_bounds[1],
@@ -1205,7 +1300,7 @@ def _compute_pane_bounds(split_mode, split_orientation,
         pane_w = width
         pane_h = height // 2
         mb_bounds = fix_aspect_ratio(xmin, xmax, ymin, ymax, pane_w, pane_h)
-        ju_bounds = fix_aspect_ratio(xmin, xmax, ymin, ymax, pane_w, pane_h)
+        ju_bounds = fix_aspect_ratio(ju_xmin, ju_xmax, ju_ymin, ju_ymax, pane_w, pane_h)
         return [
             {"x": 0, "y": 0, "w": pane_w, "h": pane_h,
              "p_xmin": mb_bounds[0], "p_xmax": mb_bounds[1],
@@ -1231,13 +1326,14 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
 
     if split_mode is not None:
         orientation = state.get("split_orientation", DEFAULT_SPLIT_ORIENT)
+        julia_vp = state.get("julia_viewport", DEFAULT_JULIA_VIEWPORT)
         panes = _compute_pane_bounds(split_mode, orientation,
-                                     xmin, xmax, ymin, ymax, width, height)
+                                     xmin, xmax, ymin, ymax, width, height,
+                                     julia_viewport=julia_vp)
         surf = pygame.Surface((width, height))
         surf.fill((0, 0, 0))
         used_gpu = False
 
-        _RENDER_CACHE.clear()
         for pane in panes:
             if pane["w"] <= 0 or pane["h"] <= 0:
                 continue
@@ -1251,17 +1347,26 @@ def render_to_surface(width, height, xmin, xmax, ymin, ymax, max_iter, state):
                    state.get("light_azim", DEFAULT_LIGHT_AZIM), state.get("light_i", DEFAULT_LIGHT_I),
                    state.get("k_ambiant", DEFAULT_K_AMBIANT), state.get("k_diffuse", DEFAULT_K_DIFFUSE),
                    state.get("k_specular", DEFAULT_K_SPECULAR), state.get("shininess", DEFAULT_SHININESS))
-            params = _RENDER_CACHE.get(key)
-            if params is None:
-                params = build_render_params(state, maxiter=max_iter, use_julia=use_julia)
-                _RENDER_CACHE[key] = params
-            rgb = _render_single(pane["w"], pane["h"],
-                                 pane["p_xmin"], pane["p_xmax"],
-                                 pane["p_ymin"], pane["p_ymax"],
-                                 max_iter, params)
-            pane_surf = pygame.surfarray.make_surface(rgb)
+            cached = _SPLIT_PANE_CACHE.get(key)
+            if cached is not None and cached[0] == pane["p_xmin"] and cached[1] == pane["p_xmax"] \
+                    and cached[2] == pane["p_ymin"] and cached[3] == pane["p_ymax"] \
+                    and cached[4] == pane["w"] and cached[5] == pane["h"]:
+                pane_surf = cached[6]
+            else:
+                params = _RENDER_CACHE.get(key)
+                if params is None:
+                    params = build_render_params(state, maxiter=max_iter, use_julia=use_julia)
+                    _RENDER_CACHE[key] = params
+                rgb = _render_single(pane["w"], pane["h"],
+                                     pane["p_xmin"], pane["p_xmax"],
+                                     pane["p_ymin"], pane["p_ymax"],
+                                     max_iter, params)
+                pane_surf = pygame.surfarray.make_surface(rgb)
+                used_gpu = used_gpu or params["use_gpu"]
+                _SPLIT_PANE_CACHE[key] = (
+                    pane["p_xmin"], pane["p_xmax"], pane["p_ymin"], pane["p_ymax"],
+                    pane["w"], pane["h"], pane_surf)
             surf.blit(pane_surf, (pane["x"], pane["y"]))
-            used_gpu = used_gpu or params["use_gpu"]
 
         return surf, used_gpu and _CUDA_AVAILABLE
 
@@ -1333,14 +1438,15 @@ class MenuOverlay:
         self.show_keybinds = False
         self.button_rects = {}
         self.menu_scale = 1.0
+        self._keybind_cache = None
 
     def toggle(self):
         self.active = not self.active
 
     def handle_click(self, pos, state):
-        """Handle a mouse click on the menu. Returns True if click was on a button."""
+        """Handle a mouse click on the menu. Returns (handled, needs_full_render)."""
         if not self.active or not self.button_rects:
-            return False
+            return False, False
         x, y = pos
         for key, rect_info in self.button_rects.items():
             rects = self._unpack_rects(rect_info, key)
@@ -1348,10 +1454,13 @@ class MenuOverlay:
                 if r.collidepoint(x, y):
                     if key == "show-keybinds":
                         self.show_keybinds = not self.show_keybinds
-                        return True
+                        self._keybind_cache = None
+                        return True, False
                     self._do_action(key, rtype, state)
-                    return True
-        return False
+                    if key in ("grid_opacity", "show_grid"):
+                        return True, False
+                    return True, True
+        return False, False
 
     def _unpack_rects(self, rect_info, key):
         """Convert stored button rects into (pygame.Rect, type) pairs."""
@@ -1398,9 +1507,6 @@ class MenuOverlay:
             "hue_0":            (False, state["rgb_thetas"][0],     0.0,   1.0,  0.01),
             "hue_1":            (False, state["rgb_thetas"][1],     0.0,   1.0,  0.01),
             "sat":              (False, state["rgb_thetas"][2],     0.0,   1.0,  0.01),
-            "orbit_hue_0":      (False, state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[0], 0.0, 1.0, 0.01),
-            "orbit_hue_1":      (False, state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[1], 0.0, 1.0, 0.01),
-            "orbit_sat":        (False, state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[2], 0.0, 1.0, 0.01),
             "c_color_r":        (False, state.get("c_point_color", DEFAULT_C_POINT_COLOR)[0], 0.0, 1.0, 0.02),
             "c_color_g":        (False, state.get("c_point_color", DEFAULT_C_POINT_COLOR)[1], 0.0, 1.0, 0.02),
             "c_color_b":        (False, state.get("c_point_color", DEFAULT_C_POINT_COLOR)[2], 0.0, 1.0, 0.02),
@@ -1427,6 +1533,22 @@ class MenuOverlay:
             state["max_iter"] = new_val
             return True
 
+        if key == "orbit_max_iter":
+            val = state["orbit_max_iter"]
+            if val <= 0:
+                val = 1
+            log2_val = math.log2(val)
+            if is_shift:
+                delta = 4 if rtype == "plus" else -4
+            elif is_ctrl:
+                delta = 1 if rtype == "plus" else -1
+            else:
+                delta = 1 if rtype == "plus" else -1
+            new_log2 = int(math.floor(log2_val + delta))
+            new_val = max(1, min(512, int(2 ** new_log2)))
+            state["orbit_max_iter"] = new_val
+            return True
+
         elif key in rows_meta:
             is_int, val, vmin, vmax, base_step = rows_meta[key]
             multiplier = 10.0 if is_shift else (0.1 if is_ctrl else 1.0)
@@ -1447,9 +1569,6 @@ class MenuOverlay:
                 idx = {"hue_0": 0, "hue_1": 1, "sat": 2}[key]
                 state["rgb_thetas"][idx] = new_val
                 state["palette_index"] = -1
-            elif key in ("orbit_hue_0", "orbit_hue_1", "orbit_sat"):
-                idx = {"orbit_hue_0": 0, "orbit_hue_1": 1, "orbit_sat": 2}[key]
-                state["orbit_rgb_thetas"][idx] = new_val
             elif key in ("c_color_r", "c_color_g", "c_color_b"):
                 idx = {"c_color_r": 0, "c_color_g": 1, "c_color_b": 2}[key]
                 state["c_point_color"][idx] = new_val
@@ -1476,7 +1595,17 @@ class MenuOverlay:
         elif key == "reset-orbit-point":
             state["orbit_point_m"] = list(DEFAULT_ORBIT_POINT_M)
             state["orbit_point_j"] = list(DEFAULT_ORBIT_POINT_J)
-            state["orbit_point"] = list(DEFAULT_ORBIT_POINT_M)  # back-compat
+            state["orbit_point"] = list(DEFAULT_ORBIT_POINT_M)
+            state["julia_c"] = list(DEFAULT_JULIA_C)
+            return True
+        elif key == "reset-orbit-point-m":
+            state["orbit_point_m"] = list(DEFAULT_ORBIT_POINT_M)
+            state["orbit_point"] = list(DEFAULT_ORBIT_POINT_M)
+            return True
+        elif key == "reset-orbit-point-j":
+            state["orbit_point_j"] = list(DEFAULT_ORBIT_POINT_J)
+            return True
+        elif key == "reset-julia-c":
             state["julia_c"] = list(DEFAULT_JULIA_C)
             return True
         elif key == "reset-colors":
@@ -1490,6 +1619,23 @@ class MenuOverlay:
             state["palette_index"] = (state.get("palette_index", 0) + 1) % len(COLOR_THETAS)
             t = COLOR_THETAS[state["palette_index"]]
             state["rgb_thetas"] = [t[0], t[1], t[2]]
+            return True
+        elif key == "toggle-split":
+            cur = state.get("split_mode", DEFAULT_SPLIT_MODE)
+            _prev_blend = state.get("set_blend", 0.0)
+            if cur is None:
+                state["_pre_split_blend"] = _prev_blend
+                state["julia_viewport"] = list(DEFAULT_JULIA_VIEWPORT)
+                state["split_mode"] = "horizontal"
+                state["split_orientation"] = "horizontal"
+                state["set_blend"] = 0.0
+            elif cur == "horizontal":
+                state["split_mode"] = "vertical"
+                state["split_orientation"] = "vertical"
+                state["set_blend"] = 0.0
+            else:
+                state["split_mode"] = None
+                state["set_blend"] = state.get("_pre_split_blend", 0.5)
             return True
         return False
 
@@ -1515,6 +1661,9 @@ class MenuOverlay:
             scaled_font = font
         th = scaled_font.get_height()
 
+        _julia_visible = (state.get("split_mode") is not None or
+                          state.get("set_blend", 0.0) > 0.0)
+
         rows = [
             ("max_iter",            "iterations",       state["max_iter"],                  True),
             ("stripe_s",            "stripe_s",     int(state["stripe_s"]),                 True),
@@ -1524,21 +1673,25 @@ class MenuOverlay:
             ("light_azim",          "light_azim",       state["light_azim"],                False),
             ("light_i",             "light_i",          state["light_i"],                   False),
             ("k_ambiant",           "k_amb",            state["k_ambiant"],                 False),
-            ("k_diffuse",           "k_diff",           state["k_diffuse"],                 False),
-            ("k_specular",          "k_spec",           state["k_specular"],                False),
-            ("shininess",           "shininess",        state["shininess"],                 False),
+            ("k_diffuse",           "k_diff",           state["k_diffuse"],                False),
+            ("k_specular",          "k_spec",           state["k_specular"],               False),
+            ("shininess",           "shininess",        state["shininess"],                False),
             ("hue_0",               "hue0",             state["rgb_thetas"][0],             False),
             ("hue_1",               "hue1",             state["rgb_thetas"][1],             False),
             ("sat",                 "sat",              state["rgb_thetas"][2],             False),
             ("orbit_max_iter",      "orbit_iter",       state["orbit_max_iter"],            True),
             ("orbit_point_size",    "orbit_size",       state.get("orbit_point_size", 3),   True),
-            ("c_point_size",        "c_pt_size",        state.get("c_point_size", 5),        True),
-            ("orbit_hue_0",         "orbit_h0",         state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[0], False),
-            ("orbit_hue_1",         "orbit_h1",         state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[1], False),
-            ("orbit_sat",           "orbit_sat",        state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[2], False),
-            ("c_color_r",           "c_r",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[0], False),
-            ("c_color_g",           "c_g",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[1], False),
-            ("c_color_b",           "c_b",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[2], False),
+        ]
+
+        if _julia_visible:
+            rows += [
+                ("c_point_size",        "c_pt_size",        state.get("c_point_size", 5),        True),
+                ("c_color_r",           "c_r",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[0], False),
+                ("c_color_g",           "c_g",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[1], False),
+                ("c_color_b",           "c_b",              state.get("c_point_color", DEFAULT_C_POINT_COLOR)[2], False),
+            ]
+
+        rows += [
             ("set_blend",           "blend",            state.get("set_blend", 0.0),        False),
             ("grid_opacity",        "grid_opac",        state.get("grid_opacity", 0.3),     False),
         ]
@@ -1548,18 +1701,47 @@ class MenuOverlay:
             ("smooth", "smooth", state.get("smooth", True)),
             ("fxaa", "fxaa", state.get("fxaa", False)),
             ("show_orbits_m", "mb orbits", state.get("show_orbits_m", state.get("show_orbits", True))),
-            ("show_orbits_j", "ju orbits", state.get("show_orbits_j", state.get("show_orbits", True))),
             ("show_orbit_lines_m",  "mb lines",    state.get("show_orbit_lines_m", True)),
-            ("show_orbit_lines_j",  "ju lines",    state.get("show_orbit_lines_j", True)),
-            ("show_c_point",        "c point",     state.get("show_c_point", True)),
             ("show_grid",           "grid",        state.get("show_grid", True)),
         ]
+
+        if _julia_visible:
+            toggles += [
+                ("show_orbits_j", "ju orbits", state.get("show_orbits_j", state.get("show_orbits", True))),
+                ("show_orbit_lines_j",  "ju lines",    state.get("show_orbit_lines_j", True)),
+                ("show_c_point",        "c point",     state.get("show_c_point", True)),
+            ]
 
         palette_idx = state.get("palette_index", 0)
         palette_name = PALETTE_NAMES[palette_idx] if 0 <= palette_idx < len(PALETTE_NAMES) else "custom"
 
-        menu_w = label_w + val_w + 2 * (btn_w + s(5)) + 4 * pad
-        menu_h = (len(rows) + len(toggles) + 6) * row_h + 2 * pad
+        rgb_t = state.get("rgb_thetas", COLOR_THETAS[palette_idx])
+        _ct = _ORBIT_COLOR_CACHE.get((tuple(rgb_t), state.get("phase", 0.0)))
+        if _ct is None:
+            _ct = make_colortable(np.array(rgb_t, dtype=np.float64))
+        menu_bg = tuple(int(max(10, min(255, v))) for v in (_ct[NCOL // 2] * 80))
+
+        action_buttons = [
+            ("reset-orbit-point-m", "reset MB orbit [I]", (60, 60, 60)),
+            ("reset-orbit-point-j", "reset Julia orbit", (60, 60, 70)),
+            ("reset-julia-c", "reset c_J point", (60, 70, 60)),
+            ("reset-colors", "reset colors (RGB+phase)", (80, 60, 60)),
+            ("reset-all", "reset all settings [BS]", (80, 60, 60)),
+            ("cycle-palette", f"palette: {palette_name} [TAB]", (60, 60, 60)),
+            ("toggle-split", "split: h/v/overlay [S]", (50, 50, 70)),
+            ("show-keybinds", "show keybinds [K]", (50, 50, 70)),
+        ]
+
+        act_w = label_w + val_w + 2 * (btn_w + s(5)) + pad
+        _max_act_w = max(scaled_font.size(l)[0] for _, l, _ in action_buttons) + 2 * (pad + s(8))
+        if _max_act_w > act_w:
+            act_w = _max_act_w
+            label_w = _max_act_w - val_w - 2 * (btn_w + s(5)) - pad
+
+        menu_w = act_w + 2 * pad
+        if menu_w > sw - pad:
+            menu_w = sw - pad
+        menu_h = (len(rows) + len(toggles) + 8) * row_h + 2 * pad
         max_menu_h = sh - 2 * pad
         if menu_h > max_menu_h:
             menu_h = max_menu_h
@@ -1567,7 +1749,7 @@ class MenuOverlay:
         menu_y = pad
 
         surf = pygame.Surface((menu_w, menu_h), pygame.SRCALPHA)
-        surf.fill((0, 0, 0, 200))
+        surf.fill((*menu_bg, 200))
         pygame.draw.rect(surf, (200, 200, 200), (0, 0, menu_w, menu_h), s(2))
 
         self.button_rects = {}
@@ -1613,14 +1795,7 @@ class MenuOverlay:
             ry += row_h
 
         # Full-width action buttons
-        for btn_key, btn_label, btn_color in [
-            ("reset-orbit-point", "reset orbit point [I]", (60, 60, 60)),
-            ("reset-colors", "reset colors (RGB+phase)", (80, 60, 60)),
-            ("reset-all", "reset all settings [BS]", (80, 60, 60)),
-            ("reset-orbit-points", "reset points (MB+Julia+c_J)", (60, 60, 70)),
-            ("cycle-palette", f"palette: {palette_name} [TAB]", (60, 60, 60)),
-            ("show-keybinds", "show keybinds [K]", (50, 50, 70)),
-        ]:
+        for btn_key, btn_label, btn_color in action_buttons:
             if ry + row_h > menu_h - pad:
                 break
             pygame.draw.rect(surf, btn_color, (pad, ry, act_w, btn_h), 0, s(3))
@@ -1637,35 +1812,53 @@ class MenuOverlay:
 
     def _draw_keybinds(self, screen, font, origin_x, origin_y, keybinds, scale):
         """Draw keybind info panel — vertical, top-left aligned."""
-        s = lambda v: max(1, int(v * scale))
-        pad = s(10)
-        th = font.get_height()
-        row_h = th + s(4)
-        line_w = s(280)
+        if self._keybind_cache is not None and self._keybind_cache[0] == scale:
+            panel_surf, panel_w, panel_h = self._keybind_cache[1]
+        else:
+            s = lambda v: max(1, int(v * scale))
+            pad = s(10)
+            th = font.get_height()
+            row_h = th + s(4)
 
-        items = sorted(keybinds.items())
-        panel_w = line_w + 2 * pad
-        panel_h = len(items) * row_h + 2 * pad
+            items = sorted(
+                (k, v) for k, v in keybinds.items()
+                if not v.startswith(("scroll_", "mouse"))
+            )
+            labels = [f"[{kc.upper()}] {action.replace('-', ' ')}" for action, kc in items]
+            max_text_w = max((font.size(l)[0] for l in labels), default=0)
+            line_w = max(max_text_w + s(20), s(200))
+            panel_w = line_w + 2 * pad
+            sw, sh = screen.get_size()
+            if panel_w > sw - 2 * pad:
+                panel_w = sw - 2 * pad
+            panel_h = len(items) * row_h + 2 * pad
+            max_panel_h = sh - 2 * pad
+            if panel_h > max_panel_h:
+                panel_h = max_panel_h
+
+            panel_surf = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+            panel_surf.fill((0, 0, 0, 220))
+            pygame.draw.rect(panel_surf, (200, 200, 200), (0, 0, panel_w, panel_h), s(2))
+
+            for i, (action, kc) in enumerate(items):
+                ky = pad + i * row_h
+                if ky + row_h > panel_h:
+                    break
+                label = f"[{kc.upper()}] {action.replace('-', ' ')}"
+                t = font.render(label, True, (200, 200, 255))
+                panel_surf.blit(t, (pad, ky))
+
+            self._keybind_cache = (scale, (panel_surf, panel_w, panel_h))
+
+        panel_x = origin_x + pad if origin_x else pad
+        panel_y = origin_y + pad if origin_y else pad
+        # Ensure panel stays within screen bounds and doesn't overlap menu
         sw, sh = screen.get_size()
-        max_panel_h = sh - 2 * pad
-        if panel_h > max_panel_h:
-            panel_h = max_panel_h
-        panel_x = pad
-        panel_y = pad
-
-        surf = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
-        surf.fill((0, 0, 0, 220))
-        pygame.draw.rect(surf, (200, 200, 200), (0, 0, panel_w, panel_h), s(2))
-
-        for i, (action, kc) in enumerate(items):
-            ky = pad + i * row_h
-            if ky + row_h > panel_h:
-                break
-            label = f"[{kc.upper()}] {action.replace('-', ' ')}"
-            t = font.render(label, True, (200, 200, 255))
-            surf.blit(t, (pad, ky))
-
-        screen.blit(surf, (panel_x, panel_y))
+        if panel_x + panel_w > sw - pad:
+            panel_x = max(pad, sw - panel_w - pad)
+        if panel_y + panel_h > sh - pad:
+            panel_y = max(pad, sh - panel_h - pad)
+        screen.blit(panel_surf, (panel_x, panel_y))
 
 
 def next_pow2(n):
@@ -1682,6 +1875,66 @@ def prev_pow2(n):
     return 1 << (n.bit_length() - 1)
 
 
+def _compute_target_iter(xmin, xmax, ymin, ymax, base_iter=ZOOM_BASE_ITER):
+    """Compute target max_iter based on current view range.
+
+    Zoom level is derived from the view's x-range logarithm.  As the user
+    zooms in (smaller range), iterations increase logarithmically to
+    reveal detail, capped at MAX_ITER_CAP and floored at MIN_ITER_CAP.
+    """
+    view_range = xmax - xmin
+    if view_range <= 0:
+        return base_iter
+    zoom_level = math.log2(4.0 / view_range)
+    target = int(base_iter * (2 ** max(0, zoom_level)))
+    return max(MIN_ITER_CAP, min(MAX_ITER_CAP, target))
+
+
+def _record_animation(state, width, height, xmin, xmax, ymin, ymax,
+                      zoom_to_cx, zoom_to_cy, zoom_factor, n_frames,
+                      filename_prefix="anim", output_dir="."):
+    """Record a zoom animation to GIF.
+
+    Uses imageio if available; otherwise saves individual frames as PNGs.
+    If imageio is not installed, falls back to saving individual PNG frames.
+    """
+    frames = []
+    cur_xmin, cur_xmax = xmin, xmax
+    cur_ymin, cur_ymax = ymin, ymax
+    max_iter = state.get("max_iter", 256)
+
+    for i in range(n_frames):
+        cx = cur_xmin + (cur_xmax - cur_xmin) * zoom_to_cx
+        cy = cur_ymax - (cur_ymax - cur_ymin) * zoom_to_cy
+        new_w = (cur_xmax - cur_xmin) * zoom_factor
+        new_h = (cur_ymax - cur_ymin) * zoom_factor
+        cur_xmin = cx - zoom_to_cx * new_w
+        cur_xmax = cur_xmin + new_w
+        cur_ymax = cy + (1 - zoom_to_cy) * new_h
+        cur_ymin = cur_ymax - new_h
+
+        cur_iter = min(max_iter, _compute_target_iter(cur_xmin, cur_xmax, cur_ymin, cur_ymax))
+        surface, _ = render_to_surface(
+            width, height, cur_xmin, cur_xmax, cur_ymin, cur_ymax, cur_iter, state)
+        arr = pygame.surfarray.array3d(surface)
+        frames.append(np.transpose(arr, (1, 0, 2)))
+
+    try:
+        path = os.path.join(output_dir, f"{filename_prefix}.gif")
+        if imageio is None:
+            raise ImportError("imageio not installed")
+        imageio.mimsave(path, frames, fps=ANIM_FPS)
+        print(f"[anim] Saved animation to {path}")
+        return path
+    except (ImportError, AttributeError):
+        for i, frame in enumerate(frames):
+            path = os.path.join(output_dir, f"{filename_prefix}_{i:04d}.png")
+            img = Image.fromarray(frame)
+            img.save(path)
+        print(f"[anim] Saved {len(frames)} frames to {output_dir}")
+        return None
+
+
 def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, offset_x, offset_y, params=None):
     """Render only the strips of the screen not covered by the offset-blitted surface."""
     ox = int(offset_x)
@@ -1693,34 +1946,34 @@ def _render_exposed_edges(screen, width, height, xmin, xmax, ymin, ymax, state, 
         params = build_render_params(state, maxiter=state.get("max_iter", 256),
                                      use_julia=state.get("set_blend", 0.0) >= 1.0)
 
-    scale_x = (xmax - xmin) / width
-    scale_y = (ymax - ymin) / height
+    scale_x = (xmax - xmin) / width if width > 0 else 0
+    scale_y = (ymax - ymin) / height if height > 0 else 0
 
     if ox > 0:
         sx = xmin
         ex = xmin + ox * scale_x
-        if sx < ex:
+        if sx < ex and ox > 0:
             surf, _ = render_to_surface(ox, height, sx, ex, ymin, ymax, state["max_iter"], state)
             screen.blit(surf, (0, 0))
     elif ox < 0:
         sx = xmax + ox * scale_x
         ex = xmax
         ow = -ox
-        if sx < ex:
+        if sx < ex and ow > 0:
             surf, _ = render_to_surface(ow, height, sx, ex, ymin, ymax, state["max_iter"], state)
             screen.blit(surf, (width + ox, 0))
 
     if oy > 0:
         sy = ymax - oy * scale_y
         ey = ymax
-        if sy < ey:
+        if sy < ey and oy > 0:
             surf, _ = render_to_surface(width, oy, xmin, xmax, sy, ey, state["max_iter"], state)
             screen.blit(surf, (0, 0))
     elif oy < 0:
         sy = ymin
         ey = ymin - oy * scale_y
         oh = -oy
-        if sy < ey:
+        if sy < ey and oh > 0:
             surf, _ = render_to_surface(width, oh, xmin, xmax, sy, ey, state["max_iter"], state)
             screen.blit(surf, (0, height + oy))
 
@@ -1850,11 +2103,11 @@ def _reset_to_defaults(state):
     state["show_c_point"] = DEFAULT_SHOW_C_POINT
     state["split_mode"] = DEFAULT_SPLIT_MODE
     state["split_orientation"] = DEFAULT_SPLIT_ORIENT
+    state["julia_viewport"] = list(DEFAULT_JULIA_VIEWPORT)
     state["show_grid"] = DEFAULT_SHOW_GRID
     state["grid_opacity"] = DEFAULT_GRID_OPACITY
     state["c_point_size"] = DEFAULT_C_POINT_SIZE
     state["c_point_color"] = list(DEFAULT_C_POINT_COLOR)
-    state["orbit_rgb_thetas"] = list(DEFAULT_ORBIT_RGB_THETAS)
     state["orbit_max_iter"] = 200
     state["orbit_point_size"] = 3
     state["fxaa"] = False
@@ -1977,6 +2230,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         "split_orientation": get_persistent_setting(settings, "split-orientation",
                                                     cast=lambda s: str(s).strip().lower(),
                                                     default=DEFAULT_SPLIT_ORIENT),
+        "julia_viewport": list(DEFAULT_JULIA_VIEWPORT),
         "show_grid": get_persistent_setting(settings, "show-grid",
                                             cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
                                             default=DEFAULT_SHOW_GRID),
@@ -1995,28 +2249,12 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
             get_persistent_setting(settings, "c-point-color-g", cast=float, default=DEFAULT_C_POINT_COLOR[1]),
             get_persistent_setting(settings, "c-point-color-b", cast=float, default=DEFAULT_C_POINT_COLOR[2]),
         ],
-        "orbit_rgb_thetas": [
-            get_persistent_setting(settings, "orbit-hue-0", cast=float, default=DEFAULT_ORBIT_RGB_THETAS[0]),
-            get_persistent_setting(settings, "orbit-hue-1", cast=float, default=DEFAULT_ORBIT_RGB_THETAS[1]),
-            get_persistent_setting(settings, "orbit-sat", cast=float, default=DEFAULT_ORBIT_RGB_THETAS[2]),
-        ],
         "show_orbit_lines_m": get_persistent_setting(settings, "show-orbit-lines-m",
-                                                      cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
-                                                      default=DEFAULT_ORBIT_LINE_M),
+                                                     cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
+                                                     default=DEFAULT_ORBIT_LINE_M),
         "show_orbit_lines_j": get_persistent_setting(settings, "show-orbit-lines-j",
-                                                      cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
-                                                      default=DEFAULT_ORBIT_LINE_J),
-        "split_mode": get_persistent_setting(settings, "split-mode",
-                                            cast=lambda s: str(s).strip().lower() if str(s).strip().lower() != "none" else None,
-                                            default=DEFAULT_SPLIT_MODE),
-        "split_orientation": get_persistent_setting(settings, "split-orientation",
-                                                    cast=lambda s: str(s).strip().lower(),
-                                                    default=DEFAULT_SPLIT_ORIENT),
-        "show_grid": get_persistent_setting(settings, "show-grid",
-                                           cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
-                                           default=DEFAULT_SHOW_GRID),
-        "grid_opacity": get_persistent_setting(settings, "grid-opacity",
-                                              cast=float, default=DEFAULT_GRID_OPACITY),
+                                                     cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
+                                                     default=DEFAULT_ORBIT_LINE_J),
     }
     state["rgb_thetas"] = list(COLOR_THETAS[state["palette_index"]])
 
@@ -2100,9 +2338,12 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
                     # Check if clicking on menu overlay first
-                    if overlay.active and overlay.handle_click(event.pos, state):
-                        _RENDER_CACHE.clear()
-                        force_full_render = True
+                    handled, needs_full = overlay.handle_click(event.pos, state)
+                    if handled:
+                        if needs_full:
+                            _RENDER_CACHE.clear()
+                            _SPLIT_PANE_CACHE.clear()
+                            force_full_render = True
                         needs_render = True
                         continue
                     _dbg(f"MOUSEBUTTONDOWN {event.pos}")
@@ -2113,7 +2354,8 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     if _split_mode is not None:
                         _pane_bounds = _compute_pane_bounds(
                             _split_mode, state.get("split_orientation", DEFAULT_SPLIT_ORIENT),
-                            xmin, xmax, ymin, ymax, width, height)
+                            xmin, xmax, ymin, ymax, width, height,
+                            julia_viewport=state.get("julia_viewport", DEFAULT_JULIA_VIEWPORT))
                         for _p in _pane_bounds:
                             if _p["x"] <= mpx < _p["x"] + _p["w"] and _p["y"] <= mpy < _p["y"] + _p["h"]:
                                 drag_pane = _p
@@ -2240,14 +2482,41 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     dy = event.pos[1] - last_mouse_pos[1]
                     last_mouse_pos = event.pos
 
-                    scale_x = (xmax - xmin) / width
-                    scale_y = (ymax - ymin) / height
-                    xmin -= dx * scale_x
-                    xmax -= dx * scale_x
-                    ymin += dy * scale_y
-                    ymax += dy * scale_y
-                    drag_offset_x += dx
-                    drag_offset_y += dy
+                    if drag_pane is not None:
+                        pane_w = drag_pane["w"]
+                        pane_h = drag_pane["h"]
+                        pb_xmin = drag_pane["p_xmin"]
+                        pb_xmax = drag_pane["p_xmax"]
+                        pb_ymin = drag_pane["p_ymin"]
+                        pb_ymax = drag_pane["p_ymax"]
+                        if drag_pane["is_julia"]:
+                            scale_x = (pb_xmax - pb_xmin) / pane_w if pane_w > 0 else 0
+                            scale_y = (pb_ymax - pb_ymin) / pane_h if pane_h > 0 else 0
+                            jv = state["julia_viewport"]
+                            jv[0] -= dx * scale_x
+                            jv[1] -= dx * scale_x
+                            jv[2] += dy * scale_y
+                            jv[3] += dy * scale_y
+                            drag_offset_x += dx
+                            drag_offset_y += dy
+                        else:
+                            scale_x = (pb_xmax - pb_xmin) / pane_w if pane_w > 0 else 0
+                            scale_y = (pb_ymax - pb_ymin) / pane_h if pane_h > 0 else 0
+                            xmin -= dx * scale_x
+                            xmax -= dx * scale_x
+                            ymin += dy * scale_y
+                            ymax += dy * scale_y
+                            drag_offset_x += dx
+                            drag_offset_y += dy
+                    else:
+                        scale_x = (xmax - xmin) / width
+                        scale_y = (ymax - ymin) / height
+                        xmin -= dx * scale_x
+                        xmax -= dx * scale_x
+                        ymin += dy * scale_y
+                        ymax += dy * scale_y
+                        drag_offset_x += dx
+                        drag_offset_y += dy
                     interacting = True
                     interact_timer = pygame.time.get_ticks()
                     needs_render = True
@@ -2255,17 +2524,53 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                 mouse_px, mouse_py = pygame.mouse.get_pos()
                 zoom_factor = 0.8 if event.y > 0 else 1.25
 
-                cx = xmin + (xmax - xmin) * mouse_px / width
-                cy = ymax - (ymax - ymin) * mouse_py / height
+                _split_mode = state.get("split_mode", DEFAULT_SPLIT_MODE)
+                if _split_mode is not None:
+                    _pane_bounds = _compute_pane_bounds(
+                        _split_mode, state.get("split_orientation", DEFAULT_SPLIT_ORIENT),
+                        xmin, xmax, ymin, ymax, width, height,
+                        julia_viewport=state.get("julia_viewport", DEFAULT_JULIA_VIEWPORT))
+                    _zoom_pane = None
+                    for _p in _pane_bounds:
+                        if _p["x"] <= mouse_px < _p["x"] + _p["w"] and _p["y"] <= mouse_py < _p["y"] + _p["h"]:
+                            _zoom_pane = _p
+                            break
+                    if _zoom_pane is not None:
+                        p_xmin, p_xmax = _zoom_pane["p_xmin"], _zoom_pane["p_xmax"]
+                        p_ymin, p_ymax = _zoom_pane["p_ymin"], _zoom_pane["p_ymax"]
+                        p_w, p_h = _zoom_pane["w"], _zoom_pane["h"]
+                        p_x0, p_y0 = _zoom_pane["x"], _zoom_pane["y"]
+                        rel_x = (mouse_px - p_x0) / p_w if p_w > 0 else 0.5
+                        rel_y = (mouse_py - p_y0) / p_h if p_h > 0 else 0.5
+                        cx = p_xmin + (p_xmax - p_xmin) * rel_x
+                        cy = p_ymax - (p_ymax - p_ymin) * rel_y
+                        new_w = (p_xmax - p_xmin) * zoom_factor
+                        new_h = (p_ymax - p_ymin) * zoom_factor
+                        p_xmin = cx - rel_x * new_w
+                        p_xmax = p_xmin + new_w
+                        p_ymax = cy + (1 - rel_y) * new_h
+                        p_ymin = p_ymax - new_h
+                        if _zoom_pane["is_julia"]:
+                            jv = state["julia_viewport"]
+                            jv[0], jv[1], jv[2], jv[3] = p_xmin, p_xmax, p_ymin, p_ymax
+                    else:
+                        xmin = p_xmin
+                        xmax = p_xmax
+                        ymin = p_ymin
+                        ymax = p_ymax
+                    _dbg(f"MOUSEWHEEL (split) y={event.y} pos={pygame.mouse.get_pos()}")
+                else:
+                    cx = xmin + (xmax - xmin) * mouse_px / width
+                    cy = ymax - (ymax - ymin) * mouse_py / height
 
-                new_width_range = (xmax - xmin) * zoom_factor
-                new_height_range = (ymax - ymin) * zoom_factor
+                    new_width_range = (xmax - xmin) * zoom_factor
+                    new_height_range = (ymax - ymin) * zoom_factor
 
-                xmin = cx - (mouse_px / width) * new_width_range
-                xmax = xmin + new_width_range
-                ymax = cy + (mouse_py / height) * new_height_range
-                _dbg(f"MOUSEWHEEL y={event.y} pos={pygame.mouse.get_pos()}")
-                ymin = ymax - new_height_range
+                    xmin = cx - (mouse_px / width) * new_width_range
+                    xmax = xmin + new_width_range
+                    ymax = cy + (mouse_py / height) * new_height_range
+                    _dbg(f"MOUSEWHEEL y={event.y} pos={pygame.mouse.get_pos()}")
+                    ymin = ymax - new_height_range
                 interacting = True
                 interact_timer = pygame.time.get_ticks()
                 needs_render = True
@@ -2291,6 +2596,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                 if action in _NUMERIC_STEPS:
                     _apply_step(state, action, _mult)
                     _RENDER_CACHE.clear()
+                    _SPLIT_PANE_CACHE.clear()
                     force_full_render = True
                     needs_render = True
 
@@ -2322,6 +2628,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                 elif action == "toggle-gpu":
                     state["use_gpu"] = not (state["use_gpu"] and _CUDA_AVAILABLE)
                     _RENDER_CACHE.clear()
+                    _SPLIT_PANE_CACHE.clear()
                     force_full_render = True
                     needs_render = True
 
@@ -2340,12 +2647,14 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                 elif action == "reset-settings":
                     _reset_to_defaults(state)
                     _RENDER_CACHE.clear()
+                    _SPLIT_PANE_CACHE.clear()
                     force_full_render = True
                     needs_render = True
 
                 elif action == "toggle-fxaa":
                     state["fxaa"] = not state.get("fxaa", False)
                     _RENDER_CACHE.clear()
+                    _SPLIT_PANE_CACHE.clear()
                     force_full_render = True
                     needs_render = True
 
@@ -2379,7 +2688,10 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
 
                 elif action == "toggle-split":
                     cur = state.get("split_mode", DEFAULT_SPLIT_MODE)
+                    _prev_blend = state.get("set_blend", 0.0)
                     if cur is None:
+                        state["_pre_split_blend"] = _prev_blend
+                        state["julia_viewport"] = list(DEFAULT_JULIA_VIEWPORT)
                         state["split_mode"] = "horizontal"
                         state["split_orientation"] = "horizontal"
                         state["set_blend"] = 0.0
@@ -2389,7 +2701,9 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                         state["set_blend"] = 0.0
                     else:
                         state["split_mode"] = None
+                        state["set_blend"] = state.get("_pre_split_blend", 0.5)
                     _RENDER_CACHE.clear()
+                    _SPLIT_PANE_CACHE.clear()
                     force_full_render = True
                     needs_render = True
 
@@ -2401,6 +2715,19 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     state["orbit_point_m"] = list(DEFAULT_ORBIT_POINT_M)
                     state["orbit_point_j"] = list(DEFAULT_ORBIT_POINT_J)
                     state["orbit_point"] = list(DEFAULT_ORBIT_POINT_M)
+                    state["julia_c"] = list(DEFAULT_JULIA_C)
+                    needs_render = True
+
+                elif action == "reset-orbit-point-m":
+                    state["orbit_point_m"] = list(DEFAULT_ORBIT_POINT_M)
+                    state["orbit_point"] = list(DEFAULT_ORBIT_POINT_M)
+                    needs_render = True
+
+                elif action == "reset-orbit-point-j":
+                    state["orbit_point_j"] = list(DEFAULT_ORBIT_POINT_J)
+                    needs_render = True
+
+                elif action == "reset-julia-c":
                     state["julia_c"] = list(DEFAULT_JULIA_C)
                     needs_render = True
 
@@ -2418,6 +2745,16 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     force_full_render = True
                     needs_render = True
 
+                elif action == "animate-zoom":
+                    _anim_path = _record_animation(
+                        state, width, height, xmin, xmax, ymin, ymax,
+                        zoom_to_cx=0.5, zoom_to_cy=0.5,
+                        zoom_factor=0.96, n_frames=ANIM_FPS * 3,
+                        filename_prefix="mandelbrot_zoom",
+                        output_dir=os.path.dirname(os.path.abspath(__file__)))
+                    if _anim_path:
+                        print(f"[anim] Animation saved: {_anim_path}")
+
                 elif action == "quit":
                     running = False
 
@@ -2434,8 +2771,26 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
             drag_offset_y = 0.0
 
         if needs_render:
+            if not still_interacting and not dragging and not force_full_render:
+                _target = _compute_target_iter(xmin, xmax, ymin, ymax)
+                if state.get("split_mode") is not None:
+                    jv = state.get("julia_viewport", DEFAULT_JULIA_VIEWPORT)
+                    _ju_target = _compute_target_iter(jv[0], jv[1], jv[2], jv[3])
+                    _target = max(_target, _ju_target)
+                if _target > state["max_iter"]:
+                    _old = state["max_iter"]
+                    state["max_iter"] = _target
+                    _RENDER_CACHE.clear()
+                    _SPLIT_PANE_CACHE.clear()
+                    force_full_render = True
+                    print(f"[zoom] iter {_old} -> {_target} (zoom auto)")
+
             still_interacting = interacting and (pygame.time.get_ticks() - interact_timer < INTERACT_SETTLE)
+            _split_mode = state.get("split_mode", DEFAULT_SPLIT_MODE)
+            _in_split_drag = _split_mode is not None and dragging and drag_pane is not None
             do_offset_blit = (still_interacting or dragging) and not force_full_render
+            if _in_split_drag:
+                do_offset_blit = False
 
             if do_offset_blit and surface is not None and (abs(drag_offset_x) > 0.1 or abs(drag_offset_y) > 0.1):
                 # Fill with edge-clamped surface to avoid gaps
@@ -2491,7 +2846,8 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         if _split_mode is not None:
             _pane_bounds = _compute_pane_bounds(
                 _split_mode, state.get("split_orientation", DEFAULT_SPLIT_ORIENT),
-                xmin, xmax, ymin, ymax, width, height)
+                xmin, xmax, ymin, ymax, width, height,
+                julia_viewport=state.get("julia_viewport", DEFAULT_JULIA_VIEWPORT))
 
         # Draw grid overlay (split-aware)
         if _pane_bounds is not None:
@@ -2590,14 +2946,12 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         ("c-point-color-r", state.get("c_point_color", DEFAULT_C_POINT_COLOR)[0]),
         ("c-point-color-g", state.get("c_point_color", DEFAULT_C_POINT_COLOR)[1]),
         ("c-point-color-b", state.get("c_point_color", DEFAULT_C_POINT_COLOR)[2]),
-        ("orbit-hue-0", state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[0]),
-        ("orbit-hue-1", state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[1]),
-        ("orbit-sat", state.get("orbit_rgb_thetas", DEFAULT_ORBIT_RGB_THETAS)[2]),
         ("show-orbit-lines-m", state.get("show_orbit_lines_m", True)),
         ("show-orbit-lines-j", state.get("show_orbit_lines_j", True)),
         ("palette-index", state.get("palette_index", 0)),
         ("split-mode", state.get("split_mode", DEFAULT_SPLIT_MODE)),
         ("split-orientation", state.get("split_orientation", DEFAULT_SPLIT_ORIENT)),
+        ("julia-viewport", ",".join(str(v) for v in state.get("julia_viewport", DEFAULT_JULIA_VIEWPORT))),
         ("show-grid", state.get("show_grid", DEFAULT_SHOW_GRID)),
         ("grid-opacity", state.get("grid_opacity", DEFAULT_GRID_OPACITY)),
     ]

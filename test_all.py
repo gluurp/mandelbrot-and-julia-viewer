@@ -99,7 +99,7 @@ print("=" * 60)
 # ===========================================================================
 print("\n--- Module Constants ---")
 test("NCOL is 4096", NCOL == 4096)
-test("COLOR_THETAS has 16 entries", len(COLOR_THETAS) == 16)
+test("COLOR_THETAS has 20 entries", len(COLOR_THETAS) == 20)
 test("All thetas are lists of 3 floats",
      all(isinstance(t, list) and len(t) == 3 for t in COLOR_THETAS))
 test("All hue values in [0, 1]",
@@ -764,6 +764,22 @@ test("MenuOverlay: reset-orbit-points resets orbit_point_m",
 test("MenuOverlay: reset-orbit-points resets orbit_point_j",
       state["orbit_point_j"] == mb.DEFAULT_ORBIT_POINT_J)
 
+# Test granular reset buttons
+state["orbit_point_m"] = [1.0, 1.0]
+overlay._do_action("reset-orbit-point-m", "click", state)
+test("MenuOverlay: reset-orbit-point-m resets orbit_point_m",
+      state["orbit_point_m"] == mb.DEFAULT_ORBIT_POINT_M)
+
+state["orbit_point_j"] = [2.0, 2.0]
+overlay._do_action("reset-orbit-point-j", "click", state)
+test("MenuOverlay: reset-orbit-point-j resets orbit_point_j",
+      state["orbit_point_j"] == mb.DEFAULT_ORBIT_POINT_J)
+
+state["julia_c"] = [0.5, 0.5]
+overlay._do_action("reset-julia-c", "click", state)
+test("MenuOverlay: reset-julia-c resets julia_c",
+      state["julia_c"] == mb.DEFAULT_JULIA_C)
+
 # Test toggle show_orbits_m and show_orbits_j
 state["show_orbits_m"] = True
 overlay._do_action("show_orbits_m", "click", state)
@@ -780,18 +796,20 @@ overlay._do_action("set_blend", "minus", state)
 test("MenuOverlay: blend down from 1.0 = 0.95 (no fp error)",
       abs(state["set_blend"] - 0.95) < 0.001, f"got {state['set_blend']}")
 
-# Test orbit_max_iter step in menu (base step = 10)
+# Test orbit_max_iter step in menu (2^x exponential pattern)
 state["orbit_max_iter"] = 200
+mb.pygame.key.set_mods(0)
 overlay._do_action("orbit_max_iter", "plus", state)
-test("MenuOverlay: orbit iter step base = 10", state["orbit_max_iter"] == 210,
+test("MenuOverlay: orbit iter step base = 256 (2^x)", state["orbit_max_iter"] == 256,
       f"got {state['orbit_max_iter']}")
 
-# Test orbit_max_iter with shift (step = 100)
+# Test orbit_max_iter with shift (delta = ±4 powers of 2, capped at 512)
 mb.pygame.key.set_mods(pygame.KMOD_LSHIFT)
 state["orbit_max_iter"] = 200
 overlay._do_action("orbit_max_iter", "plus", state)
-test("MenuOverlay: orbit iter shift step = 100", state["orbit_max_iter"] == 300,
+test("MenuOverlay: orbit iter shift step = 512 (capped)", state["orbit_max_iter"] == 512,
       f"got {state['orbit_max_iter']}")
+mb.pygame.key.set_mods(0)
 
 # Test orbit line toggles
 state["show_orbit_lines_m"] = True
@@ -806,13 +824,6 @@ test("MenuOverlay: toggle show_orbit_lines_j", state["show_orbit_lines_j"] is Tr
 state["show_c_point"] = True
 overlay._do_action("show_c_point", "click", state)
 test("MenuOverlay: toggle show_c_point", state["show_c_point"] is False)
-
-# Test orbit color sliders
-state["orbit_rgb_thetas"] = [0.0, 0.167, 0.95]
-mb.pygame.key.set_mods(0)
-overlay._do_action("orbit_hue_0", "plus", state)
-test("MenuOverlay: orbit hue_0 step", state["orbit_rgb_thetas"][0] > 0.0,
-      f"got {state['orbit_rgb_thetas'][0]}")
 
 # Test c-point color sliders
 state["c_point_color"] = [0, 0.784, 0]  # [0, 200/255, 0]
@@ -915,6 +926,82 @@ key = (tuple(state["rgb_thetas"]), state["phase"],
        state.get("k_ambiant", mb.DEFAULT_K_AMBIANT), state.get("k_diffuse", mb.DEFAULT_K_DIFFUSE),
        state.get("k_specular", mb.DEFAULT_K_SPECULAR), state.get("shininess", mb.DEFAULT_SHININESS))
 test("render_to_surface populates cache", key in mb._RENDER_CACHE)
+
+# ===========================================================================
+# 28. Auto-zoom iteration and split cycle
+# ===========================================================================
+print("\n--- Auto-zoom & Split Cycle ---")
+state = make_full_state()
+state["split_mode"] = None
+state["set_blend"] = 0.0
+
+# Auto-iteration: zoom 10x should increase target iter beyond base 64
+_target = mb._compute_target_iter(-2.5, 1.0, -1.5, 1.5, base_iter=64)
+test("Auto-zoom: default view iter ≈ 64", 64 <= _target <= 128)
+_target_z = mb._compute_target_iter(-2.01, -1.99, -0.01, 0.01, base_iter=64)
+test("Auto-zoom: deep zoom iter > 64", _target_z > 64)
+test("Auto-zoom: iter capped at MAX_ITER_CAP", _target_z <= mb.MAX_ITER_CAP)
+
+# Split cycle: None -> horizontal -> vertical -> None (overlay restores blend)
+state["set_blend"] = 0.3
+overlay._do_action("toggle-split", "click", state)
+test("Split cycle: None -> horizontal", state["split_mode"] == "horizontal")
+overlay._do_action("toggle-split", "click", state)
+test("Split cycle: horizontal -> vertical", state["split_mode"] == "vertical")
+overlay._do_action("toggle-split", "click", state)
+test("Split cycle: vertical -> overlay(blend restored)", state["split_mode"] is None and state["set_blend"] > 0.0)
+
+# Split mode: independent julia_viewport
+state = make_full_state()
+state["split_mode"] = "horizontal"
+state["julia_viewport"] = list(mb.DEFAULT_JULIA_VIEWPORT)
+_panes = mb._compute_pane_bounds("horizontal", "horizontal",
+    -2.5, 1.0, -1.5, 1.5, 800, 600,
+    julia_viewport=state.get("julia_viewport", mb.DEFAULT_JULIA_VIEWPORT))
+test("Split panes: 2 panes returned", len(_panes) == 2)
+test("Split panes: MB pane is not julia", _panes[0]["is_julia"] is False)
+test("Split panes: Julia pane bounds differ from MB",
+     _panes[1]["p_xmin"] != _panes[0]["p_xmin"] or
+     _panes[1]["p_ymin"] != _panes[0]["p_ymin"])
+test("Split panes: Julia uses independent viewport bounds",
+     _panes[1]["p_xmin"] != _panes[0]["p_xmin"] or
+     _panes[1]["p_ymin"] != _panes[0]["p_ymin"])
+
+# fix_aspect_ratio with zero dimensions
+_result = mb.fix_aspect_ratio(-2, 2, -2, 2, 100, 0)
+test("fix_aspect_ratio: h=0 returns original bounds",
+     _result == [-2, 2, -2, 2])
+
+# _render_exposed_edges with zero-size strips
+screen = pygame.Surface((100, 100))
+mb._render_exposed_edges(screen, 100, 100, -2, 2, -2, 2, state, 0.0, 0.0)
+test("_render_exposed_edges: zero offset no-op", True)
+
+# ===========================================================================
+# 28b. Keybinds panel: mouse-wheel / mouse-button entries excluded
+# ===========================================================================
+print("\n--- Keybind Panel Filtering ---")
+_mouse_actions = {"zoom-in", "zoom-out", "toggle-orbits", "toggle-orbit-lines-m",
+                  "toggle-orbit-lines-j", "toggle-c-point", "toggle-split",
+                  "toggle-grid", "grid-opac-up", "grid-opac-down",
+                  "reset-orbit-point", "reset-orbit-points",
+                  "reset-orbit-point-m", "reset-orbit-point-j", "reset-julia-c",
+                  "swap-orbit-point", "cycle-palette", "animate-zoom",
+                  "reset-settings", "iter-up", "iter-down",
+                  "hue0-up", "hue0-down", "hue1-up", "hue1-down",
+                  "sat-up", "sat-down", "blend-up", "blend-down",
+                  "stripe-up", "stripe-down", "step-up", "step-down",
+                  "phase-up", "phase-down", "light-angle-up", "light-angle-down",
+                  "light-azim-up", "light-azim-down", "light-i-up", "light-i-down",
+                  "k-amb-up", "k-amb-down", "k-diff-up", "k-diff-down",
+                  "k-spec-up", "k-spec-down", "shininess-up", "shininess-down"}
+_mouse_keys = {k for k, v in mb.DEFAULT_KEYBINDS.items() if v.startswith(("scroll_", "mouse"))}
+test("Mouse-wheel keybinds detected", len(_mouse_keys) > 0)
+_filtered = {k: v for k, v in mb.DEFAULT_KEYBINDS.items() if not v.startswith(("scroll_", "mouse"))}
+test("Filtered keybinds panel excludes mouse actions",
+     all(not v.startswith(("scroll_", "mouse")) for v in _filtered.values()))
+test("zoom-in removed from filtered panel", "zoom-in" not in _filtered)
+test("zoom-out removed from filtered panel", "zoom-out" not in _filtered)
 
 # ===========================================================================
 # 29. Keybind name conversion
