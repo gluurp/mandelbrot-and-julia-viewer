@@ -127,7 +127,7 @@ test("Phase changes colortable", not np.allclose(ct_base, ct_phased, atol=0.01))
 test("Phase preserves shape", ct_phased.shape == ct_base.shape)
 
 # Grayscale palette: all channels equal
-ct_gray = mb.make_colortable(np.array(COLOR_THETAS[8], dtype=np.float64))
+ct_gray = mb.make_colortable(np.array(COLOR_THETAS[9], dtype=np.float64))
 test("Grayscale: channels equal",
      np.max(np.abs(ct_gray[:, 0] - ct_gray[:, 1])) < 0.01 and
      np.max(np.abs(ct_gray[:, 1] - ct_gray[:, 2])) < 0.01)

@@ -43,112 +43,115 @@ def _dbg(msg):
 
 
 DEFAULT_KEYBINDS = {
-    "quit": "escape",
-    "toggle-info": "m",
-    "reset-view": "o",
-    "toggle-gpu": "p",
-    "toggle-smooth": "u",
-    "toggle-fxaa": "j",
-    "blend-up": "s",
-    "blend-down": "a",
-    "toggle-orbits": "space",
-    "toggle-orbits-m": "ctrl+space",
-    "toggle-orbits-j": "alt+space",
-    "toggle-orbit-lines-m": "l",
-    "toggle-orbit-lines-j": "shift+l",
-    "toggle-c-point": "c",
-    "toggle-split": "shift+s",
-    "toggle-grid": "g",
-    "grid-opac-up": "shift+g",
-    "grid-opac-down": "ctrl+g",
-    "reset-orbit-point": "i",
-    "reset-orbit-points": "shift+i",
-    "reset-orbit-point-m": "ctrl+i",
-    "reset-orbit-point-j": "alt+i",
-    "reset-julia-c": "ctrl+shift+i",
-    "swap-orbit-point": "x",
-    "cycle-palette": "tab",
-    "animate-zoom": "shift+z",
-    "reset-settings": "backspace",
-    "iter-up": "=",
-    "iter-down": "-",
-    "hue0-up": "ctrl+r",
-    "hue0-down": "ctrl+f",
-    "hue1-up": "ctrl+g",
-    "hue1-down": "ctrl+v",
-    "sat-up": "ctrl+n",
-    "sat-down": "ctrl+m",
-    "zoom-in": "scroll_up",
-    "zoom-out": "scroll_down",
+    "quit":                     "escape",
+    "toggle-info":              "m",
+    "reset-view":               "o",
+    "toggle-gpu":               "p",
+    "toggle-smooth":            "u",
+    "toggle-fxaa":              "j",
+    "blend-up":                 "s",
+    "blend-down":               "a",
+    "toggle-orbits":            "space",
+    "toggle-orbits-m":          "ctrl+space",
+    "toggle-orbits-j":          "alt+space",
+    "toggle-orbit-lines-m":     "l",
+    "toggle-orbit-lines-j":     "shift+l",
+    "toggle-c-point":           "c",
+    "toggle-split":             "shift+s",
+    "toggle-grid":              "g",
+    "grid-opac-up":             "shift+g",
+    "grid-opac-down":           "ctrl+g",
+    "reset-orbit-point":        "i",
+    "reset-orbit-points":       "shift+i",
+    "reset-orbit-point-m":      "ctrl+i",
+    "reset-orbit-point-j":      "alt+i",
+    "reset-julia-c":            "ctrl+shift+i",
+    "swap-orbit-point":         "x",
+    "cycle-palette":            "tab",
+    "animate-zoom":             "shift+z",
+    "reset-settings":           "backspace",
+    "toggle-auto-iter":         "f1",
+    "iter-up":                  "=",
+    "iter-down":                "-",
+    "hue0-up":                  "ctrl+r",
+    "hue0-down":                "ctrl+f",
+    "hue1-up":                  "ctrl+g",
+    "hue1-down":                "ctrl+v",
+    "sat-up":                   "ctrl+n",
+    "sat-down":                 "ctrl+m",
+    "zoom-in":                  "scroll_up",
+    "zoom-out":                 "scroll_down",
 }
 
 _MOD_MAP = {
-    "ctrl": pygame.KMOD_CTRL,
-    "shift": pygame.KMOD_SHIFT,
-    "alt": pygame.KMOD_ALT,
-    "meta": pygame.KMOD_GUI,
+    "ctrl":     pygame.KMOD_CTRL,
+    "shift":    pygame.KMOD_SHIFT,
+    "alt":      pygame.KMOD_ALT,
+    "meta":     pygame.KMOD_GUI,
 }
 
-DEFAULT_NCYCLE          = 32
-DEFAULT_STRIPE_S        = 0.0
-DEFAULT_STRIPE_SIG      = 0.9
-DEFAULT_STEP_S          = 0.0
-DEFAULT_LIGHT_ANGLE     = 0.46  # 0.125/(2*pi) normalized
-DEFAULT_LIGHT_AZIM      = 0.5   # 0.5/(pi/2) normalized
-DEFAULT_LIGHT_I         = 0.75
-DEFAULT_K_AMBIANT       = 0.2
-DEFAULT_K_DIFFUSE       = 0.5
-DEFAULT_K_SPECULAR      = 0.5
-DEFAULT_SHININESS       = 20.0
-DEFAULT_RGB_THETAS      = [0.0, 0.167, 0.95]  # fire (HSV: hue_start, hue_end, sat)
-DEFAULT_PHASE           = 0.0
-DEFAULT_JULIA_C         = [0.394, 0.338]  # c_J from math.txt
-DEFAULT_ORBIT_POINT_M   = [0.018, -0.63]  # s_M from math.txt
-DEFAULT_ORBIT_POINT_J   = [0.153, 0.473]  # s_J from math.txt
-DEFAULT_SET_BLEND       = 0.0             # 0=MB only, 1=Julia only
-DEFAULT_ORBIT_POINT     = DEFAULT_ORBIT_POINT_M  # back-compat
-DEFAULT_SHOW_C_POINT    = True
-DEFAULT_C_POINT_SIZE    = 5
-DEFAULT_C_POINT_COLOR   = [0, 200, 0]     # green
-DEFAULT_ORBIT_RGB_THETAS = [0.0, 0.167, 0.95]  # orbit color palette (fire)
-DEFAULT_ORBIT_LINE_M    = True            # L_M from math.txt
-DEFAULT_ORBIT_LINE_J    = True            # L_J from math.txt
-DEFAULT_SHOW_ORBITS_M   = True
-DEFAULT_SHOW_ORBITS_J   = True
-DEFAULT_SPLIT_MODE      = None
-DEFAULT_SPLIT_ORIENT    = "horizontal"
-DEFAULT_JULIA_VIEWPORT  = (-1.5, 1.5, -1.5, 1.5)  # independent view bounds for Julia pane
-DEFAULT_SHOW_GRID       = True
-DEFAULT_GRID_OPACITY    = 0.3
-NCOL                    = 2 ** 12
+DEFAULT_NCYCLE              = 32
+DEFAULT_STRIPE_S            = 0.0
+DEFAULT_STRIPE_SIG          = 0.9
+DEFAULT_STEP_S              = 0.0
+DEFAULT_LIGHT_ANGLE         = 0.46  # 0.125/(2*pi) normalized
+DEFAULT_LIGHT_AZIM          = 0.5   # 0.5/(pi/2) normalized
+DEFAULT_LIGHT_I             = 0.75
+DEFAULT_K_AMBIANT           = 0.2
+DEFAULT_K_DIFFUSE           = 0.5
+DEFAULT_K_SPECULAR          = 0.5
+DEFAULT_SHININESS           = 20.0
+DEFAULT_RGB_THETAS          = [0.0, 0.208, 1.0]  # fire (HSV: hue_start, hue_end, sat)
+DEFAULT_PHASE               = 0.0
+DEFAULT_JULIA_C             = [0.394, 0.338]
+DEFAULT_ORBIT_POINT_M       = [0.018, -0.63] 
+DEFAULT_ORBIT_POINT_J       = [0.153, 0.473]
+DEFAULT_SET_BLEND           = 0.0             # 0=MB only, 1=Julia only
+DEFAULT_ORBIT_POINT         = DEFAULT_ORBIT_POINT_M  # back-compat
+DEFAULT_SHOW_C_POINT        = True
+DEFAULT_C_POINT_SIZE        = 5
+DEFAULT_C_POINT_COLOR       = [0, 200, 0]     # green
+DEFAULT_ORBIT_RGB_THETAS    = [0.0, 0.167, 0.95]  # orbit color palette (fire)
+DEFAULT_ORBIT_LINE_M        = True 
+DEFAULT_ORBIT_LINE_J        = True  
+DEFAULT_SHOW_ORBITS_M       = True
+DEFAULT_SHOW_ORBITS_J       = True
+DEFAULT_SPLIT_MODE          = None
+DEFAULT_SPLIT_ORIENT        = "horizontal"
+DEFAULT_JULIA_VIEWPORT      = (-1.5, 1.5, -1.5, 1.5)  # independent view bounds for Julia pane
+DEFAULT_SHOW_GRID           = True
+DEFAULT_GRID_OPACITY        = 0.3
+DEFAULT_AUTO_ITER           = False 
+NCOL                        = 2 ** 12
 
 COLOR_THETAS = [
-    [0.000, 0.167, 0.95],  # fire      — red -> orange
-    [0.550, 0.650, 0.50],  # deep-sea  — dark blue (low sat)
+    [0.000, 0.208, 1.00],  # fire      — hot red -> orange-yellow
+    [0.500, 0.667, 0.50],  # deep-sea  — dark cyan -> deep blue
     [0.500, 0.700, 0.80],  # arctic    — cyan -> blue
+    [0.450, 0.600, 0.55],  # ice       — light blue -> cyan (low sat)
     [0.500, 0.625, 0.75],  # ocean     — cyan -> blue
-    [0.000, 1.000, 0.85],  # twilight  — full hue spectrum
+    [0.667, 0.833, 0.70],  # twilight  — purple -> magenta
     [0.833, 0.917, 0.90],  # magenta   — magenta -> pink
-    [0.333, 0.833, 0.75],  # aurora    — green -> magenta
-    [0.250, 0.417, 0.60],  # forest    — yellow-green -> green
+    [0.250, 0.750, 0.70],  # aurora    — green -> magenta (less extreme)
+    [0.250, 0.417, 0.50],  # forest    — yellow-green -> dark green
     [0.000, 0.000, 0.00],  # grayscale — pure grayscale
-    [0.333, 0.333, 0.00],  # monochrome — grayscale (independent of hue)
-    [0.000, 0.125, 0.85],  # sunset    — red -> orange
-    [0.083, 0.208, 0.90],  # amber     — orange -> yellow
-    [0.500, 0.600, 0.40],  # ice       — cyan -> light blue (low sat)
+    [0.083, 0.083, 0.50],  # monochrome — sepia (brownish)
+    [0.000, 0.083, 0.90],  # sunset    — red -> orange-red
+    [0.083, 0.125, 0.85],  # amber     — orange -> orange-red
     [0.300, 0.450, 0.55],  # jade      — green -> yellow-green
-    [0.000, 0.083, 0.45],  # copper    — red-orange -> orange (muted)
+    [0.000, 0.083, 0.65],  # copper    — red-orange -> orange
     [0.667, 0.833, 0.85],  # violet    — blue -> magenta
-    [0.400, 0.800, 0.30],  # neon      — electric green -> blue
-    [0.167, 0.000, 0.95],  # lava      — deep red -> bright yellow
+    [0.000, 0.125, 0.90],  # electric  — red -> orange (neon-like)
+    [0.050, 0.000, 0.95],  # lava      — red -> orange (less yellow)
     [0.750, 0.100, 0.60],  # cosmic    — purple -> pink
-    [0.083, 0.500, 0.83],  # teal      — blue -> green
+    [0.500, 0.583, 0.70],  # teal      — blue -> green-blue (more teal)
 ]
 DEFAULT_PALETTE_INDEX = 0
 PALETTE_NAMES = [
     "fire",
     "deep-sea",
     "arctic",
+    "ice",
     "ocean",
     "twilight",
     "magenta",
@@ -158,11 +161,10 @@ PALETTE_NAMES = [
     "monochrome",
     "sunset",
     "amber",
-    "ice",
     "jade",
     "copper",
     "violet",
-    "neon",
+    "electric",
     "lava",
     "cosmic",
     "teal",
@@ -1489,7 +1491,7 @@ class MenuOverlay:
                         self._menu_cache = None
                         return True, False
                     self._do_action(key, rtype, state)
-                    if key in ("grid_opacity", "show_grid"):
+                    if key in ("grid_opacity", "show_grid", "auto_iter"):
                         self._menu_cache = None
                         return True, False
                     return True, True
@@ -1549,7 +1551,7 @@ class MenuOverlay:
         }
         toggle_keys = {"use_gpu", "smooth", "fxaa", "show_orbits", "show_orbits_m", "show_orbits_j",
                        "show_orbit_lines_m", "show_orbit_lines_j", "show_c_point", "show_grid",
-                       "reset-orbit-points"}
+                       "auto_iter", "reset-orbit-points"}
 
         if key == "max_iter":
             val = state["max_iter"]
@@ -1704,8 +1706,8 @@ class MenuOverlay:
             screen.blit(_surf, (_ax, _ay))
             self.button_rects = _button_rects
             if self.show_keybinds and self._keybind_cache is not None and self._keybind_cache[0] == scale:
-                _ksurf, _, _kw, _kh = self._keybind_cache[1]
-                screen.blit(_ksurf, (max(_ax - _kw - 10, 10), _ay))
+                _ksurf, _kw, _kh = self._keybind_cache[1]
+                screen.blit(_ksurf, (10, 10))
             return
         s = lambda v: max(1, int(v * scale))
         pad = s(10)
@@ -1755,7 +1757,6 @@ class MenuOverlay:
 
         rows += [
             ("set_blend",           "blend",            state.get("set_blend", 0.0),        False),
-            ("grid_opacity",        "grid_opac",        state.get("grid_opacity", 0.3),     False),
         ]
 
         toggles = [
@@ -1764,7 +1765,6 @@ class MenuOverlay:
             ("fxaa", "fxaa", state.get("fxaa", False)),
             ("show_orbits_m", "mb orbits", state.get("show_orbits_m", state.get("show_orbits", True))),
             ("show_orbit_lines_m",  "mb lines",    state.get("show_orbit_lines_m", True)),
-            ("show_grid",           "grid",        state.get("show_grid", True)),
         ]
 
         if _julia_visible:
@@ -1773,6 +1773,11 @@ class MenuOverlay:
                 ("show_orbit_lines_j",  "ju lines",    state.get("show_orbit_lines_j", True)),
                 ("show_c_point",        "c point",     state.get("show_c_point", True)),
             ]
+
+        toggles += [
+            ("show_grid",           "grid",        state.get("show_grid", True)),
+            ("auto_iter",           "auto-iter",   state.get("auto_iter", DEFAULT_AUTO_ITER)),
+        ]
 
         palette_idx = state.get("palette_index", 0)
         palette_name = PALETTE_NAMES[palette_idx] if 0 <= palette_idx < len(PALETTE_NAMES) else "custom"
@@ -1783,15 +1788,19 @@ class MenuOverlay:
             _ct = make_colortable(np.array(rgb_t, dtype=np.float64))
         menu_bg = tuple(int(max(10, min(255, v))) for v in (_ct[NCOL // 2] * 80))
 
+        _ct_on = tuple(int(max(0, min(255, v * 180))) for v in _ct[NCOL // 4])
+        _ct_off = tuple(int(max(0, min(255, v * 120))) for v in _ct[-1])
+        _ct_dim = tuple(int(max(10, min(255, v * 90))) for v in _ct[0])
+
         action_buttons = [
-            ("reset-orbit-point-m", "reset MB orbit [I]", (60, 60, 60)),
-            ("reset-orbit-point-j", "reset Julia orbit", (60, 60, 70)),
-            ("reset-julia-c", "reset c_J point", (60, 70, 60)),
-            ("reset-colors", "reset colors (RGB+phase)", (80, 60, 60)),
-            ("reset-all", "reset all settings [BS]", (80, 60, 60)),
-            ("cycle-palette", f"palette: {palette_name} [TAB]", (60, 60, 60)),
-            ("toggle-split", "split: h/v/overlay [S]", (50, 50, 70)),
-            ("show-keybinds", "show keybinds [K]", (50, 50, 70)),
+            ("reset-orbit-point-m", "reset MB orbit [I]", _ct_dim),
+            ("reset-orbit-point-j", "reset Julia orbit", tuple(int(max(10, min(255, v * 90))) for v in _ct[NCOL // 8])),
+            ("reset-julia-c", "reset c_J point", tuple(int(max(10, min(255, v * 100))) for v in _ct[3 * NCOL // 8])),
+            ("reset-colors", "reset colors (RGB+phase)", tuple(int(max(10, min(255, v * 90))) for v in _ct[NCOL // 2])),
+            ("reset-all", "reset all settings [BS]", tuple(int(max(10, min(255, v * 90))) for v in _ct[NCOL // 2])),
+            ("cycle-palette", f"palette: {palette_name} [TAB]", _ct_dim),
+            ("toggle-split", "split: h/v/overlay [S]", tuple(int(max(10, min(255, v * 80))) for v in _ct[3 * NCOL // 4])),
+            ("show-keybinds", "show keybinds [K]", tuple(int(max(10, min(255, v * 80))) for v in _ct[3 * NCOL // 4])),
         ]
 
         act_w = label_w + val_w + 2 * (btn_w + s(5)) + pad
@@ -1848,7 +1857,7 @@ class MenuOverlay:
         for key, label, val in toggles:
             if ry + row_h > menu_h - pad:
                 break
-            on_color = (80, 180, 80) if val else (180, 80, 80)
+            on_color = _ct_on if val else _ct_off
             pygame.draw.rect(surf, on_color, (pad, ry, act_w, btn_h), 0, s(3))
             pygame.draw.rect(surf, (200, 200, 200), (pad, ry, act_w, btn_h), s(1))
             lt = scaled_font.render(f"{label}: {'ON' if val else 'OFF'}", True, (255, 255, 255))
@@ -2141,45 +2150,46 @@ def _apply_step(state, action, mult):
         state[key] = new_val
 
 
-def _reset_to_defaults(state):
+def _reset_to_defaults(state): # see top of the file for defaults
     """Reset all visual and interaction settings to their defaults."""
-    state["rgb_thetas"] = list(COLOR_THETAS[DEFAULT_PALETTE_INDEX])
-    state["phase"] = DEFAULT_PHASE
-    state["stripe_s"] = DEFAULT_STRIPE_S
-    state["stripe_sig"] = DEFAULT_STRIPE_SIG
-    state["step_s"] = DEFAULT_STEP_S
-    state["light_angle"] = DEFAULT_LIGHT_ANGLE
-    state["light_azim"] = DEFAULT_LIGHT_AZIM
-    state["light_i"] = DEFAULT_LIGHT_I
-    state["k_ambiant"] = DEFAULT_K_AMBIANT
-    state["k_diffuse"] = DEFAULT_K_DIFFUSE
-    state["k_specular"] = DEFAULT_K_SPECULAR
-    state["shininess"] = DEFAULT_SHININESS
-    state["smooth"] = True
-    state["use_gpu"] = False
-    state["orbit_point"] = list(DEFAULT_ORBIT_POINT)
-    state["show_orbits"] = True
-    state["show_orbits_m"] = True
-    state["show_orbits_j"] = True
+    state["rgb_thetas"]         = list(COLOR_THETAS[DEFAULT_PALETTE_INDEX])
+    state["phase"]              = DEFAULT_PHASE
+    state["stripe_s"]           = DEFAULT_STRIPE_S
+    state["stripe_sig"]         = DEFAULT_STRIPE_SIG
+    state["step_s"]             = DEFAULT_STEP_S
+    state["light_angle"]        = DEFAULT_LIGHT_ANGLE
+    state["light_azim"]         = DEFAULT_LIGHT_AZIM
+    state["light_i"]            = DEFAULT_LIGHT_I
+    state["k_ambiant"]          = DEFAULT_K_AMBIANT
+    state["k_diffuse"]          = DEFAULT_K_DIFFUSE
+    state["k_specular"]         = DEFAULT_K_SPECULAR
+    state["shininess"]          = DEFAULT_SHININESS
+    state["smooth"]             = True
+    state["use_gpu"]            = False
+    state["orbit_point"]        = list(DEFAULT_ORBIT_POINT)
+    state["show_orbits"]        = True
+    state["show_orbits_m"]      = True
+    state["show_orbits_j"]      = True
     state["show_orbit_lines_m"] = DEFAULT_ORBIT_LINE_M
     state["show_orbit_lines_j"] = DEFAULT_ORBIT_LINE_J
-    state["show_c_point"] = DEFAULT_SHOW_C_POINT
-    state["split_mode"] = DEFAULT_SPLIT_MODE
-    state["split_orientation"] = DEFAULT_SPLIT_ORIENT
-    state["julia_viewport"] = list(DEFAULT_JULIA_VIEWPORT)
-    state["show_grid"] = DEFAULT_SHOW_GRID
-    state["grid_opacity"] = DEFAULT_GRID_OPACITY
-    state["c_point_size"] = DEFAULT_C_POINT_SIZE
-    state["c_point_color"] = list(DEFAULT_C_POINT_COLOR)
-    state["orbit_max_iter"] = 200
-    state["orbit_point_size"] = 3
-    state["fxaa"] = False
-    state["palette_index"] = DEFAULT_PALETTE_INDEX
-    state["set_blend"] = DEFAULT_SET_BLEND
-    state["orbit_point_m"] = list(DEFAULT_ORBIT_POINT_M)
-    state["orbit_point_j"] = list(DEFAULT_ORBIT_POINT_J)
-    state["orbit_point"] = list(DEFAULT_ORBIT_POINT_M)  # back-compat
-    state["julia_c"] = list(DEFAULT_JULIA_C)
+    state["show_c_point"]       = DEFAULT_SHOW_C_POINT
+    state["split_mode"]         = DEFAULT_SPLIT_MODE
+    state["split_orientation"]  = DEFAULT_SPLIT_ORIENT
+    state["julia_viewport"]     = list(DEFAULT_JULIA_VIEWPORT)
+    state["show_grid"]          = DEFAULT_SHOW_GRID
+    state["grid_opacity"]       = DEFAULT_GRID_OPACITY
+    state["auto_iter"]          = DEFAULT_AUTO_ITER
+    state["c_point_size"]       = DEFAULT_C_POINT_SIZE
+    state["c_point_color"]      = list(DEFAULT_C_POINT_COLOR)
+    state["orbit_max_iter"]     = 200
+    state["orbit_point_size"]   = 3
+    state["fxaa"]               = False
+    state["palette_index"]      = DEFAULT_PALETTE_INDEX
+    state["set_blend"]          = DEFAULT_SET_BLEND
+    state["orbit_point_m"]      = list(DEFAULT_ORBIT_POINT_M)
+    state["orbit_point_j"]      = list(DEFAULT_ORBIT_POINT_J)
+    state["orbit_point"]        = list(DEFAULT_ORBIT_POINT_M)  # back-compat
+    state["julia_c"]            = list(DEFAULT_JULIA_C)
 
 
 def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_no_gpu=False, cli_julia=False, cli_blend=None):
@@ -2299,6 +2309,9 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                                             default=DEFAULT_SHOW_GRID),
         "grid_opacity": get_persistent_setting(settings, "grid-opacity",
                                                cast=float, default=DEFAULT_GRID_OPACITY),
+        "auto_iter": get_persistent_setting(settings, "auto-iter",
+                                            cast=lambda s: str(s).strip().lower() in ("true", "1", "yes"),
+                                            default=DEFAULT_AUTO_ITER),
         "julia_c": [
             get_persistent_setting(settings, "julia-cx", cast=float, default=DEFAULT_JULIA_C[0]),
             get_persistent_setting(settings, "julia-cy", cast=float, default=DEFAULT_JULIA_C[1]),
@@ -2775,6 +2788,13 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
                     state["show_grid"] = not state.get("show_grid", True)
                     needs_render = True
 
+                elif action == "toggle-auto-iter":
+                    state["auto_iter"] = not state.get("auto_iter", True)
+                    _RENDER_CACHE.clear()
+                    _SPLIT_PANE_CACHE.clear()
+                    force_full_render = True
+                    needs_render = True
+
                 elif action == "reset-orbit-point":
                     state["orbit_point_m"] = list(DEFAULT_ORBIT_POINT_M)
                     state["orbit_point_j"] = list(DEFAULT_ORBIT_POINT_J)
@@ -2835,7 +2855,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
             drag_offset_y = 0.0
 
         if needs_render:
-            if not still_interacting and not dragging and not force_full_render:
+            if state.get("auto_iter", DEFAULT_AUTO_ITER) and not still_interacting and not dragging and not force_full_render:
                 _target = _compute_target_iter(xmin, xmax, ymin, ymax)
                 if state.get("split_mode") is not None:
                     jv = state.get("julia_viewport", DEFAULT_JULIA_VIEWPORT)
@@ -3018,6 +3038,7 @@ def run_render_mode(settings, cli_iter=None, cli_color=None, cli_gpu=False, cli_
         ("julia-viewport", ",".join(str(v) for v in state.get("julia_viewport", DEFAULT_JULIA_VIEWPORT))),
         ("show-grid", state.get("show_grid", DEFAULT_SHOW_GRID)),
         ("grid-opacity", state.get("grid_opacity", DEFAULT_GRID_OPACITY)),
+        ("auto-iter", state.get("auto_iter", DEFAULT_AUTO_ITER)),
     ]
     for key, val in _save_map:
         settings[key] = str(val)
