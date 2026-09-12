@@ -38,7 +38,7 @@ def check(name, condition, details=""):
 def make_state(**overrides):
     state = {
         "max_iter": 256,
-        "rgb_thetas": list(mb.COLOR_THETAS[0]),
+        "rgb_thetas": list(mb.DEFAULT_RGB_THETAS),
         "phase": 0.0,
         "use_gpu": False,
         "stripe_s": 0.0,
@@ -58,6 +58,8 @@ def make_state(**overrides):
         "orbit_point": [0.018, -0.63],
         "orbit_max_iter": 200,
         "orbit_point_size": 3,
+        "show_orbit_handles": True,
+        "auto_iter": mb.DEFAULT_AUTO_ITER,
         "is_julia": False,
         "julia_c": [0.394, 0.338],
     }
@@ -94,18 +96,41 @@ def simulate_key(state, action, shift_held=False):
         state["is_julia"] = not state.get("is_julia", False)
         _RENDER_CACHE.clear()
         changed = True
+    elif action == "toggle-auto-iter":
+        state["auto_iter"] = not state.get("auto_iter", mb.DEFAULT_AUTO_ITER)
+        _RENDER_CACHE.clear()
+        changed = True
     elif action == "toggle-orbits":
         state["show_orbits"] = not state.get("show_orbits", False)
+        changed = True
+    elif action == "toggle-orbit-handles":
+        state["show_orbit_handles"] = not state.get("show_orbit_handles", mb.DEFAULT_SHOW_ORBIT_HANDLES)
         changed = True
     elif action == "reset-orbit-point":
         state["orbit_point"] = [0.018, -0.63]
         changed = True
     elif action == "cycle-palette":
-        state["palette_index"] = (state.get("palette_index", 0) + 1) % len(mb.COLOR_THETAS)
-        t = mb.COLOR_THETAS[state["palette_index"]]
-        state["rgb_thetas"] = [t[0], t[1], t[2]]
-        _RENDER_CACHE.clear()
-        changed = True
+        palettes = mb.get_all_palettes()
+        if palettes:
+            gradient_palettes = [p for p in palettes if p.get("type") == "gradient"]
+            if gradient_palettes:
+                _idx = state.get("_palette_file_idx", 0) % len(gradient_palettes)
+                _global_idx = palettes.index(gradient_palettes[_idx])
+                mb._apply_palette_by_index(state, _global_idx)
+                state["palette_index"] = _global_idx
+                state["_palette_file_idx"] = (_idx + 1) % len(gradient_palettes)
+                _RENDER_CACHE.clear()
+                changed = True
+    elif action == "load-palette-file":
+        palettes = mb.get_all_palettes()
+        if palettes:
+            gradient_palettes = [p for p in palettes if p.get("type") == "gradient"]
+            _idx = state.get("_palette_file_idx", 0) % len(gradient_palettes or palettes)
+            mb._apply_palette_by_index(state, _idx)
+            state["palette_index"] = _idx
+            state["_palette_file_idx"] = (_idx + 1) % len(gradient_palettes or palettes)
+            _RENDER_CACHE.clear()
+            changed = True
     elif action == "reset-settings":
         state["rgb_thetas"] = list(mb.DEFAULT_RGB_THETAS)
         state["phase"] = mb.DEFAULT_PHASE
@@ -124,8 +149,11 @@ def simulate_key(state, action, shift_held=False):
         state["show_orbits"] = True
         state["orbit_max_iter"] = 200
         state["orbit_point_size"] = 3
+        state["show_orbit_handles"] = mb.DEFAULT_SHOW_ORBIT_HANDLES
         state["fxaa"] = False
         state["palette_index"] = mb.DEFAULT_PALETTE_INDEX
+        mb._apply_palette_by_index(state, state["palette_index"])
+        state["auto_iter"] = mb.DEFAULT_AUTO_ITER
         state["is_julia"] = False
         state["julia_c"] = list(mb.DEFAULT_JULIA_C)
         _RENDER_CACHE.clear()
@@ -196,6 +224,19 @@ state_s = make_state()
 simulate_key(state_s, "toggle-orbits")
 check("toggle-orbits: flips", state_s["show_orbits"] is False)
 
+# toggle-orbit-handles
+state_s = make_state()
+simulate_key(state_s, "toggle-orbit-handles")
+check("toggle-orbit-handles: flips", state_s["show_orbit_handles"] is False)
+
+# toggle-auto-iter
+state_s = make_state(auto_iter=True)
+simulate_key(state_s, "toggle-auto-iter")
+check("toggle-auto-iter: flips to False", state_s["auto_iter"] is False)
+state_s = make_state(auto_iter=False)
+simulate_key(state_s, "toggle-auto-iter")
+check("toggle-auto-iter: flips to True", state_s["auto_iter"] is True)
+
 print("\n--- Reset actions ---")
 # reset-settings
 state_s = make_state(is_julia=True, palette_index=5, smooth=False, fxaa=True,
@@ -208,6 +249,7 @@ check("reset-settings: fxaa = False", state_s["fxaa"] is False)
 check("reset-settings: phase = DEFAULT", state_s["phase"] == mb.DEFAULT_PHASE)
 check("reset-settings: light_angle = DEFAULT", state_s["light_angle"] == mb.DEFAULT_LIGHT_ANGLE)
 check("reset-settings: orbit_point reset", state_s["orbit_point"] == [0.018, -0.63])
+check("reset-settings: auto_iter = DEFAULT", state_s["auto_iter"] == mb.DEFAULT_AUTO_ITER)
 
 # reset-orbit-point
 state_s = make_state(orbit_point=[1.5, -0.7])
@@ -215,14 +257,23 @@ simulate_key(state_s, "reset-orbit-point")
 check("reset-orbit-point: resets to [0.018, -0.63]", state_s["orbit_point"] == [0.018, -0.63])
 
 print("\n--- Palette cycling ---")
-state_s = make_state(palette_index=0)
+palettes = mb.get_all_palettes()
+gradient_pals = [p for p in palettes if p.get("type") == "gradient"]
+state_s = make_state(palette_index=0, _palette_file_idx=0)
 simulate_key(state_s, "cycle-palette")
-check("cycle-palette: index 0 -> 1", state_s["palette_index"] == 1)
-check("cycle-palette: updates rgb_thetas", state_s["rgb_thetas"] == list(mb.COLOR_THETAS[1]))
+_gidx = 0
+check("cycle-palette: _palette_file_idx 0 -> 1", state_s.get("_palette_file_idx") == 1)
+check("cycle-palette: gradient_stops set", "gradient_stops" in state_s)
+check("cycle-palette: rgb_thetas at default", state_s["rgb_thetas"] == list(mb.DEFAULT_RGB_THETAS))
 
-state_s = make_state(palette_index=len(mb.COLOR_THETAS) - 1)
+state_s = make_state(_palette_file_idx=len(gradient_pals) - 1)
 simulate_key(state_s, "cycle-palette")
-check("cycle-palette: wraps around", state_s["palette_index"] == 0)
+check("cycle-palette: wraps around _palette_file_idx", state_s.get("_palette_file_idx") == 0)
+
+state_s = make_state(palette_index=-1, _palette_file_idx=0)
+simulate_key(state_s, "load-palette-file")
+check("load-palette-file: sets valid palette index", 0 <= state_s["palette_index"] < len(palettes))
+check("load-palette-file: loads palette data", "gradient_stops" in state_s)
 
 print("\n--- Iteration stepping ---")
 state_s = make_state(max_iter=256)

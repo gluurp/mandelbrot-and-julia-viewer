@@ -63,19 +63,19 @@ How many digits of accuracy for how flat slope has to be for it to be considered
 -- Text
 
 - Sliders
-S = 0  [0 to 7, step 1]
-s = 1  [0 to 3, step 1]
-p = 1  [0 to 3, step 1]
-L_M = 0  [0 to 1, step 1]
-L_J = 1  [0 to 1, step 1]
-I = 0  [0 to 1, step 1]
-n_max = 50  [0 to 200, step 1]
-m_max = 750  [0 to 750, step 1]
-A_s = 5  [1 to 12, step 1]
-A_sp = 5  [1 to 6, step 1]
-K_max = 30  [10 to 60, step 1]
+S = 0           [0 to 7,    step 1]
+s = 1           [0 to 3,    step 1]
+p = 1           [0 to 3,    step 1]
+L_M = 0         [0 to 1,    step 1]
+L_J = 1         [0 to 1,    step 1]
+I = 0           [0 to 1,    step 1]
+n_max = 50      [0 to 200,  step 1]
+m_max = 750     [0 to 750,  step 1]
+A_s = 5         [1 to 12,   step 1]
+A_sp = 5        [1 to 6,    step 1]
+K_max = 30      [10 to 60,  step 1]
 
-- Points THESE ARE ARIBITRARY, THESE ARE JUST PLACEHOLDERS AND ARE CUSTOMIZABLE
+- Points THESE ARE ARIBITRARY, THESE ARE JUST PLACEHOLDERS AND ARE CUSTOMIZABLE/DRAGGABLE
 s_M = (0.018, -0.63)
 s_J = (0.153, 0.473)
 c_J = (0.394, 0.338)
@@ -169,14 +169,14 @@ z_{J}(n,x,y)=(((((z_{J}((n-1),x,y)).x^{2})-(z_{J}((n-1),x,y)).y^{2})+c_{J}.x),((
 - Helpers
 m_{L}=[1,...,m_{max}]
 K_{L}=[1,...,K_{max}]
-P_{zM}=z_{M}(m_{L},s_{M}.x,s_{M}.y)
-P_{zJ}=z_{J}(m_{L},s_{J}.x,s_{J}.y)
+P_{zM}=z_{M}(m_{L},s_{M}.x,s_{M}.y) | THIS IS PLOTTED
+P_{zJ}=z_{J}(m_{L},s_{J}.x,s_{J}.y) | THIS IS PLOTTED
 P_{M}=\{P_{zM}.x[1]+P_{zM}.y[1]=0:P_{zM},join([(0,0)],P_{zM})\}
 P_{J}=\{P_{zJ}.x[1]+P_{zJ}.y[1]=0:P_{zJ},join([(0,0)],P_{zJ})\}
-P_{pMI}=\{(p=1 or p=2) and L_{M}=0:\{I=0:unique(P_{M}[2...]),I=1:unique(P_{M})\}\}
-P_{pJI}=\{(p=1 or p=3) and L_{J}=0:\{I=0:unique(P_{J}[2...]),I=1:unique(P_{J})\}\}
-P_{lMI}=\{(p=1 or p=2) and L_{M}=1:\{I=0:unique(P_{M}[2...]),I=1:unique(P_{M})\}\}
-P_{lJI}=\{(p=1 or p=3) and L_{J}=1:\{I=0:unique(P_{J}[2...]),I=1:unique(P_{J})\}\}
+P_{pMI}=\{(p=1 or p=2) and L_{M}=0:\{I=0:unique(P_{M}[2...]),I=1:unique(P_{M})\}\} | THIS IS PLOTTED
+P_{pJI}=\{(p=1 or p=3) and L_{J}=0:\{I=0:unique(P_{J}[2...]),I=1:unique(P_{J})\}\} | THIS IS PLOTTED
+P_{lMI}=\{(p=1 or p=2) and L_{M}=1:\{I=0:unique(P_{M}[2...]),I=1:unique(P_{M})\}\} | THIS IS PLOTTED
+P_{lJI}=\{(p=1 or p=3) and L_{J}=1:\{I=0:unique(P_{J}[2...]),I=1:unique(P_{J})\}\} | THIS IS PLOTTED
 P_{Mi}=P_{M}[2...]
 P_{Ji}=P_{J}[2...]
 P_{MSi}=unique(join(P_{Mi}.x,P_{Mi}.y))
@@ -195,25 +195,25 @@ tone(\{S=7:1,0\}(880P_{Bi}+880))
 - Periodic Cycle
 C_{MEL}=\sqrt{((P_{Mi}.x[length(P_{Mi})])-(P_{Mi}.x[length(P_{Mi})-K_{L}]))^{2}+((P_{Mi}.y[length(P_{Mi})])-(P_{Mi}.y[length(P_{Mi})-K_{L}]))^{2}}
 C_{Mc}=K_{L}[C_{MEL}=min(C_{MEL})][1]
-C_{ML}=\{p=1 or p=2:P_{Mi}[length(P_{Mi})-C_{Mc}+1...length(P_{Mi})]\}
+C_{ML}=\{p=1 or p=2:P_{Mi}[length(P_{Mi})-C_{Mc}+1...length(P_{Mi})]\}                  | THIS IS PLOTTED
 C_{JEL}=\sqrt{((P_{Ji}.x[length(P_{Ji})])-(P_{Ji}.x[length(P_{Ji})-K_{L}]))^{2}+((P_{Ji}.y[length(P_{Ji})])-(P_{Ji}.y[length(P_{Ji})-K_{L}]))^{2}}
 C_{Jc}=K_{L}[C_{JEL}=min(C_{JEL})][1]
-C_{JL}=\{p=1 or p=3:P_{Ji}[length(P_{Ji})-C_{Jc}+1...length(P_{Ji})]\{p=1 or p=3\}\}
+C_{JL}=\{p=1 or p=3:P_{Ji}[length(P_{Ji})-C_{Jc}+1...length(P_{Ji})]\{p=1 or p=3\}\}    | THIS IS PLOTTED
 
 - Fixed Points
 Z_{Mreal}=\sqrt{(\sqrt{(1-4s_{M}.x)^{2}+(-4s_{M}.y)^{2}}+(1-4s_{M}.x))/2}
 Z_{Mimag}=(sign(-4s_{M}.y)\sqrt{max(0,(\sqrt{(1-4s_{M}.x)^{2}+(-4s_{M}.y)^{2}}-(1-4s_{M}.x))/2)})/2
 Z_{Mpos}=((1+Z_{Mreal})/2,Z_{Mimag})
 Z_{Mneg}=((1-Z_{Mreal})/2,-Z_{Mimag})
-\{distance(mean(C_{ML}),Z_{Mpos})<distance(mean(C_{ML}),Z_{Mneg}):\{min(C_{MEL})>10^{-A_{s}}:\{T_{Ms}=1orT_{Ms}=2:Z_{Mpos}\}\}\}
-\{distance(mean(C_{ML}),Z_{Mneg})<distance(mean(C_{ML}),Z_{Mpos}):\{min(C_{MEL})>10^{-A_{s}}:\{T_{Ms}=1orT_{Ms}=2:Z_{Mneg}\}\}\}
+\{distance(mean(C_{ML}),Z_{Mpos})<distance(mean(C_{ML}),Z_{Mneg}):\{min(C_{MEL})>10^{-A_{s}}:\{T_{Ms}=1orT_{Ms}=2:Z_{Mpos}\}\}\} | THIS IS PLOTTED
+\{distance(mean(C_{ML}),Z_{Mneg})<distance(mean(C_{ML}),Z_{Mpos}):\{min(C_{MEL})>10^{-A_{s}}:\{T_{Ms}=1orT_{Ms}=2:Z_{Mneg}\}\}\} | THIS IS PLOTTED
 
 Z_{Jreal}=\sqrt{(\sqrt{(1-4s_{J}.x)^{2}+(-4s_{J}.y)^{2}}+(1-4s_{J}.x))/2}
 Z_{Jimag}=(sign(-4s_{J}.y)\sqrt{max(0,(\sqrt{(1-4s_{J}.x)^{2}+(-4s_{J}.y)^{2}}-(1-4s_{J}.x))/2)})/2
 Z_{Jpos}=((1+Z_{Jreal})/2,Z_{Jimag})
 Z_{Jneg}=((1-Z_{Jreal})/2,-Z_{Jimag})
-\{distance(mean(C_{JL}),Z_{Jpos})<distance(mean(C_{JL}),Z_{Jneg}):\{min(C_{JEL})>10^{-A_{s}}:\{T_{Js}=1orT_{Js}=2:Z_{Jpos}\}\}\}
-\{distance(mean(C_{JL}),Z_{Jneg})<distance(mean(C_{JL}),Z_{Jpos}):\{min(C_{JEL})>10^{-A_{s}}:\{T_{Js}=1orT_{Js}=2:Z_{Jneg}\}\}\}
+\{distance(mean(C_{JL}),Z_{Jpos})<distance(mean(C_{JL}),Z_{Jneg}):\{min(C_{JEL})>10^{-A_{s}}:\{T_{Js}=1orT_{Js}=2:Z_{Jpos}\}\}\} | THIS IS PLOTTED
+\{distance(mean(C_{JL}),Z_{Jneg})<distance(mean(C_{JL}),Z_{Jpos}):\{min(C_{JEL})>10^{-A_{s}}:\{T_{Js}=1orT_{Js}=2:Z_{Jneg}\}\}\} | THIS IS PLOTTED
 
 min(C_{MEL})
 min(C_{JEL})

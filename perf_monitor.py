@@ -59,8 +59,8 @@ class PerfMonitor:
         gpu_info = {}
 
         try:
-            from pynvml import pynvmlInit, pynvmlDeviceGetHandleByIndex, pynvmlDeviceGetUtilizationRates, pynvmlDeviceGetMemoryInfo
-            pynvmlInit()
+            from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetUtilizationRates, nvmlDeviceGetMemoryInfo
+            nvmlInit()
             nvml = True
         except Exception:
             try:
@@ -136,7 +136,10 @@ class RenderProfiler:
             self.render_times.pop(0)
         self.tile_counts = {"gpu_tiles": n_gpu_tiles, "cpu_tiles": n_cpu_tiles}
         if n_gpu_tiles > self.max_tile_counts["gpu_tiles"] or n_cpu_tiles > self.max_tile_counts["cpu_tiles"]:
-            self.max_tile_counts = {"gpu_tiles": n_gpu_tiles, "cpu_tiles": n_cpu_tiles}
+            if n_gpu_tiles > self.max_tile_counts["gpu_tiles"]:
+                self.max_tile_counts["gpu_tiles"] = n_gpu_tiles
+            if n_cpu_tiles > self.max_tile_counts["cpu_tiles"]:
+                self.max_tile_counts["cpu_tiles"] = n_cpu_tiles
 
     def get_avg_render_ms(self):
         return sum(self.render_times) / len(self.render_times) if self.render_times else 0

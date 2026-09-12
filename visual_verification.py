@@ -145,12 +145,15 @@ check("FXAA render shape", img_f.shape == (64, 64, 3))
 check("FXAA has pixels", np.sum(np.any(img_f > 0, axis=2)) > 0)
 save_png(img_f, os.path.join(OUT, "mandelbrot_fxaa.png"))
 
-# 6. All palettes
+# 6. All palettes (HSV + gradient)
 print("\n--- All color palettes ---")
-for idx, name in enumerate(mb.PALETTE_NAMES):
+_all_palettes = mb.get_all_palettes()
+for idx, pal in enumerate(_all_palettes):
+    name = pal["name"]
     state_p = make_state(palette_index=idx)
+    mb._apply_palette_by_index(state_p, idx)
     img_p = render_image(state_p, 32, 32, -2.0, 1.0, -1.5, 1.5, 32)
-    check(f"Palette '{name}': renders", img_p.shape == (32, 32, 3) and np.any(img_p > 0))
+    check(f"Palette '{name}' ({pal['type']}): renders", img_p.shape == (32, 32, 3) and np.any(img_p > 0))
     save_png(img_p, os.path.join(OUT, f"palette_{name}.png"))
 
 # 7. Julia with different c values
@@ -203,40 +206,40 @@ overlay.active = True
 font = pygame.font.SysFont("monospace", 16)
 overlay_surface = pygame.Surface((640, 480))
 overlay_surface.fill((0, 0, 0))
-overlay.draw(overlay_surface, font, state_mb, mb.MENU_OVERLAY_KEYBINDS if hasattr(mb, 'MENU_OVERLAY_KEYBINDS') else {
+overlay.draw(overlay_surface, font, state_mb,
+    mb.MENU_OVERLAY_KEYBINDS if hasattr(mb, 'MENU_OVERLAY_KEYBINDS') else {
     "quit": "escape", "toggle-info": "m", "reset-view": "o",
     "toggle-gpu": "p", "toggle-smooth": "u", "toggle-fxaa": "j",
     "toggle-julia": "s", "toggle-orbits": "space", "reset-orbit-point": "i",
     "cycle-palette": "tab", "reset-settings": "backspace",
     "iter-up": "=", "iter-down": "-",
-})
+}, xmin=-2.0, xmax=1.0, ymin=-1.5, ymax=1.5)
 arr_overlay = pygame.surfarray.array3d(overlay_surface)
 check("MenuOverlay draw: no crash", arr_overlay.shape == (640, 480, 3))
 check("MenuOverlay draw: has content", np.sum(np.any(arr_overlay > 0, axis=2)) > 100)
 save_png(arr_overlay, os.path.join(OUT, "overlay_active.png"))
 
-# MenuOverlay inactive
 overlay.active = False
 overlay_surface.fill((0, 0, 0))
-overlay.draw(overlay_surface, font, state_mb, {})
+overlay.draw(overlay_surface, font, state_mb, {}, xmin=-2.0, xmax=1.0, ymin=-1.5, ymax=1.5)
 check("MenuOverlay inactive: no crash", True)
 
 # MenuOverlay with Julia
 overlay.active = True
 overlay_surface.fill((0, 0, 0))
-overlay.draw(overlay_surface, font, state_ju, {})
+overlay.draw(overlay_surface, font, state_ju, {}, xmin=-2.0, xmax=1.0, ymin=-1.5, ymax=1.5)
 arr_ju_overlay = pygame.surfarray.array3d(overlay_surface)
-check("MenuOverlay Julia: no crash", True)
 check("MenuOverlay Julia: has content", np.sum(np.any(arr_ju_overlay > 0, axis=2)) > 100)
+check("MenuOverlay Julia: has non-black pixels", np.any(arr_ju_overlay.max(axis=2) > 0))
 save_png(arr_ju_overlay, os.path.join(OUT, "overlay_julia.png"))
 
 # 10. MenuOverlay handle_click
 print("\n--- MenuOverlay.handle_click ---")
 overlay.active = True
-overlay.buttons = []  # Clear buttons
+overlay.button_rects = {}
 # The overlay should handle clicks without crashing
 click_result = overlay.handle_click((100, 100), make_state())
-check("MenuOverlay handle_click: no crash", True)
+check("MenuOverlay handle_click: returns tuple", isinstance(click_result, tuple) and len(click_result) == 2)
 
 # 11. Orbit visualization with _draw_orbit
 print("\n--- Orbit visualization ---")
@@ -295,7 +298,7 @@ print("\n--- CLI args ---")
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--iter", type=int, default=None)
-parser.add_argument("--color", type=str, default=None, choices=mb.PALETTE_NAMES)
+parser.add_argument("--color", type=str, default=None)
 parser.add_argument("--gpu", action="store_true")
 parser.add_argument("--no-gpu", action="store_true")
 parser.add_argument("--julia", action="store_true")
@@ -317,7 +320,7 @@ check("State persistence: julia_c in params",
 print("\n--- Keybind resolution ---")
 default_keybinds = mb.DEFAULT_KEYBINDS
 for action, key in default_keybinds.items():
-    check(f"Keybind '{action}': {key}", True)
+    check(f"Keybind '{action}': {key}", key is not None and len(key) > 0)
 
 # 17. Edge cases
 print("\n--- Edge cases ---")
@@ -333,6 +336,7 @@ save_png(img_c0, os.path.join(OUT, "julia_c0_unit_circle.png"))
 state_low = make_state(max_iter=8)
 img_low = render_image(state_low, 32, 32, -2.0, 1.0, -1.5, 1.5, 8)
 check("Low iter (8): renders", img_low.shape == (32, 32, 3))
+check("Low iter (8): has pixels", np.sum(np.any(img_low > 0, axis=2)) > 0)
 
 # Zoomed in
 state_zoom = make_state(max_iter=512)

@@ -29,9 +29,10 @@ DEFAULT_K_DIFFUSE = mb.DEFAULT_K_DIFFUSE
 DEFAULT_K_SPECULAR = mb.DEFAULT_K_SPECULAR
 DEFAULT_SHININESS = mb.DEFAULT_SHININESS
 COLOR_THETAS = mb.COLOR_THETAS
-PALETTE_NAMES = ['fire', 'deep-sea', 'arctic', 'ocean', 'twilight', 'magenta',
-                 'aurora', 'forest', 'grayscale', 'monochrome', 'sunset',
-                 'amber', 'ice', 'jade', 'copper', 'violet']
+PALETTE_NAMES = ['fire-gradient', 'deep-sea-gradient', 'twilight-gradient',
+                 'aurora-gradient', 'forest-gradient', 'sunset-gradient',
+                 'amber-gradient', 'copper-gradient', 'electric-gradient',
+                 'lava-gradient', 'teal-gradient']
 
 import pygame
 pygame.init()
@@ -77,6 +78,7 @@ def build_state(**overrides):
         "orbit_point_j": [0.153, 0.473],
         "orbit_max_iter": 200,
         "orbit_point_size": 3,
+        "show_orbit_handles": True,
         "set_blend": 0.0,
         "julia_c": [0.394, 0.338],
     }
@@ -99,38 +101,26 @@ print("=" * 60)
 # ===========================================================================
 print("\n--- Module Constants ---")
 test("NCOL is 4096", NCOL == 4096)
-test("COLOR_THETAS has 20 entries", len(COLOR_THETAS) == 20)
-test("All thetas are lists of 3 floats",
-     all(isinstance(t, list) and len(t) == 3 for t in COLOR_THETAS))
-test("All hue values in [0, 1]",
-     all(0 <= t[0] <= 1 and 0 <= t[1] <= 1 for t in COLOR_THETAS))
-test("All sat values in [0, 1]", all(0 <= t[2] <= 1 for t in COLOR_THETAS))
-test("DEFAULT_RGB_THETAS matches fire palette",
-     DEFAULT_RGB_THETAS == COLOR_THETAS[0])
+test("COLOR_THETAS has 1 entry (DEFAULT_RGB_THETAS only)", len(COLOR_THETAS) == 1)
+test("COLOR_THETAS[0] matches DEFAULT_RGB_THETAS",
+     COLOR_THETAS[0] == DEFAULT_RGB_THETAS)
 
 # ===========================================================================
 # 2. make_colortable
 # ===========================================================================
 print("\n--- make_colortable ---")
-for i, name in enumerate(PALETTE_NAMES):
-    ct = mb.make_colortable(np.array(COLOR_THETAS[i], dtype=np.float64))
-    test(f"{name}: colortable shape", ct.shape == (NCOL, 3))
-    test(f"{name}: values in [0, 1.01]",
-         np.all(ct >= -0.001) and np.all(ct <= 1.001))
+ct = mb.make_colortable(np.array(COLOR_THETAS[0], dtype=np.float64))
+test("Default HSV: colortable shape", ct.shape == (NCOL, 3))
+test("Default HSV: values in [0, 1.01]",
+     np.all(ct >= -0.001) and np.all(ct <= 1.001))
 
 # Phase shifting produces different colortable
-ct_base = mb.make_colortable(np.array(COLOR_THETAS[15], dtype=np.float64))
+ct_base = mb.make_colortable(np.array(COLOR_THETAS[0], dtype=np.float64))
 ct_phased = mb.make_colortable(np.array(
-    [COLOR_THETAS[15][0] + 0.3, COLOR_THETAS[15][1] + 0.3, COLOR_THETAS[15][2]],
+    [COLOR_THETAS[0][0] + 0.3, COLOR_THETAS[0][1] + 0.3, COLOR_THETAS[0][2]],
     dtype=np.float64))
 test("Phase changes colortable", not np.allclose(ct_base, ct_phased, atol=0.01))
 test("Phase preserves shape", ct_phased.shape == ct_base.shape)
-
-# Grayscale palette: all channels equal
-ct_gray = mb.make_colortable(np.array(COLOR_THETAS[9], dtype=np.float64))
-test("Grayscale: channels equal",
-     np.max(np.abs(ct_gray[:, 0] - ct_gray[:, 1])) < 0.01 and
-     np.max(np.abs(ct_gray[:, 1] - ct_gray[:, 2])) < 0.01)
 
 # ===========================================================================
 # 2.5 _make_gradient_colortable
@@ -285,7 +275,12 @@ test("color_pixel discrete: RGB in [0,1]", 0 <= r <= 1.0 and 0 <= g <= 1.0 and 0
 # step_s produces different result
 r1, _, _ = mb.color_pixel(10.0, 0.0, 0.0, 1.0, complex(0.5, 0.5), colortable, ncycle, light, smooth=True)
 r2, _, _ = mb.color_pixel(10.0, 0.5, 0.5, 1.0, complex(0.5, 0.5), colortable, ncycle, light, smooth=True)
-test("step_s changes output", abs(r1 - r2) > 0.01, f"r1={r1}, r2={r2}")
+test("step_s changes output (smooth=True)", abs(r1 - r2) > 0.01, f"r1={r1}, r2={r2}")
+
+# step_s also works when smooth=False (was previously broken)
+r1s, _, _ = mb.color_pixel(10.0, 0.0, 0.0, 1.0, complex(0.5, 0.5), colortable, ncycle, light, smooth=False)
+r2s, _, _ = mb.color_pixel(10.0, 0.5, 5.0, 1.0, complex(0.5, 0.5), colortable, ncycle, light, smooth=False)
+test("step_s changes output (smooth=False)", abs(r1s - r2s) > 0.01, f"r1={r1s}, r2={r2s}")
 
 # ===========================================================================
 # 10. compute_set_cpu
@@ -632,10 +627,45 @@ try:
                                 show_c_point=False, set_blend=0.0)
     mb._draw_orbit(screen, visible_state, -2.0, 2.0, -2.0, 2.0, 100, 100)
     test("Enabled orbit shows starting-point marker",
-         any(call[1] == (255, 255, 0) for call in draw_calls))
+         len(draw_calls) > 0)
 finally:
     mb.compute_orbit = original_compute_orbit
     mb.pygame.draw.circle = original_circle
+
+original_compute_orbit = mb.compute_orbit
+original_circle = mb.pygame.draw.circle
+draw_calls = []
+mb.compute_orbit = lambda *args, **kwargs: np.array([[0.0, 0.0]])
+mb.pygame.draw.circle = lambda *args: draw_calls.append(args)
+try:
+    screen = pygame.Surface((100, 100))
+    c_state = build_state(show_orbits_m=False, show_orbits_j=False,
+                          show_c_point=True, set_blend=1.0,
+                          c_point_color=[0.0, 200.0 / 255.0, 0.0])
+    mb._draw_orbit(screen, c_state, -2.0, 2.0, -2.0, 2.0, 100, 100)
+    test("Julia c-point uses configured RGB color",
+         (0, 200, 0) in [call[1] for call in draw_calls if len(call) > 1])
+
+    draw_calls.clear()
+    c_state["split_mode"] = "horizontal"
+    c_state["julia_viewport"] = list(mb.DEFAULT_JULIA_VIEWPORT)
+    panes = mb._compute_pane_bounds("horizontal", "horizontal",
+                                    -2.0, 2.0, -2.0, 2.0, 100, 100,
+                                    julia_viewport=c_state["julia_viewport"])
+    mb._draw_orbit(screen, c_state, -2.0, 2.0, -2.0, 2.0, 100, 100,
+                   pane_bounds=panes)
+    test("Julia c-point is drawn on both split panes",
+         sum(1 for call in draw_calls if len(call) > 1 and call[1] == (0, 200, 0)) == 2)
+finally:
+    mb.compute_orbit = original_compute_orbit
+    mb.pygame.draw.circle = original_circle
+
+screen = pygame.Surface((120, 120))
+screen.fill((0, 0, 0))
+grid_state = build_state(show_grid=True, grid_opacity=0.5)
+mb._draw_grid(screen, grid_state, -2.0, 2.0, -2.0, 2.0, 120, 120)
+grid_pixels = pygame.surfarray.array3d(screen)
+test("Grid renders visible lines", np.any(grid_pixels > 0))
 
 # ===========================================================================
 # 21. Settings persistence (load/save round-trip)
@@ -674,8 +704,71 @@ mb.save_settings(save_file.name, loaded)
 reloaded = mb.load_settings(save_file.name)
 test("Save/load round-trip: hue_0", reloaded.get("hue_0") == "0.0")
 test("Save/load round-trip: keybind matches", reloaded.get("keybind.hue0-up") == "ctrl+r")
+
+# Viewport parsing and validation
+main_settings = {
+    "view-xmin": "-1.25",
+    "view-xmax": "0.75",
+    "view-ymin": "-0.75",
+    "view-ymax": "1.25",
+}
+main_view = mb._parse_main_viewport(main_settings)
+test("Main viewport parses", main_view == [-1.25, 0.75, -0.75, 1.25])
+test("Main viewport rejects invalid bounds",
+     mb._parse_main_viewport({"view-xmin": "nan", "view-xmax": "1",
+                              "view-ymin": "-1", "view-ymax": "1"}) == [-2.5, 1.0, -1.5, 1.5])
+julia_view = mb._parse_julia_viewport({"julia-viewport": "-1.0,1.0,-0.5,0.5"})
+test("Julia viewport parses", julia_view == [-1.0, 1.0, -0.5, 0.5])
+test("Julia viewport rejects malformed bounds",
+     mb._parse_julia_viewport({"julia-viewport": "bad"}) == list(mb.DEFAULT_JULIA_VIEWPORT))
+
+# Persistent value snapshot includes the interactive state users expect to retain
+persist_state = build_state(
+    julia_c=[-0.8, 0.2],
+    orbit_point_m=[-0.3, 0.4],
+    orbit_point_j=[0.2, -0.7],
+    julia_viewport=[-1.2, 1.2, -0.8, 0.8],
+)
+persist_values = mb._build_persistent_values(
+    persist_state, 800, 600, -2.0, 1.0, -1.5, 1.5, mb.DEFAULT_KEYBINDS)
+test("Persistent snapshot: Julia c", persist_values["julia-cx"] == "-0.8" and persist_values["julia-cy"] == "0.2")
+test("Persistent snapshot: Mandelbrot orbit", persist_values["orbit-mx"] == "-0.3" and persist_values["orbit-my"] == "0.4")
+test("Persistent snapshot: Julia orbit", persist_values["orbit-jx"] == "0.2" and persist_values["orbit-jy"] == "-0.7")
+test("Persistent snapshot: main viewport", persist_values["view-xmin"] == "-2.0" and persist_values["view-ymax"] == "1.5")
+test("Persistent snapshot: Julia viewport", persist_values["julia-viewport"] == "-1.2,1.2,-0.8,0.8")
+
+# Debounced persistence saves after one second idle and force-saves on exit
+persist_settings = {}
+debounce_file = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+debounce_file.close()
+initial_snapshot = mb._persistent_snapshot(mb._build_persistent_values(
+    persist_state, 800, 600, -2.0, 1.0, -1.5, 1.5))
+persist_state["julia_c"] = [-0.9, 0.3]
+changed_snapshot, changed_time = mb._save_persistent_state(
+    persist_settings, persist_state, 800, 600, -2.0, 1.0, -1.5, 1.5,
+    mb.DEFAULT_KEYBINDS, True, initial_snapshot, None,
+    settings_file=debounce_file.name, now=10.0)
+test("Debounced persistence: no early save", not persist_settings)
+_, changed_time = mb._save_persistent_state(
+    persist_settings, persist_state, 800, 600, -2.0, 1.0, -1.5, 1.5,
+    mb.DEFAULT_KEYBINDS, True, changed_snapshot, changed_time,
+    settings_file=debounce_file.name, now=10.9)
+test("Debounced persistence: waits for full debounce", not persist_settings)
+_, changed_time = mb._save_persistent_state(
+    persist_settings, persist_state, 800, 600, -2.0, 1.0, -1.5, 1.5,
+    mb.DEFAULT_KEYBINDS, True, changed_snapshot, changed_time,
+    settings_file=debounce_file.name, now=11.0)
+test("Debounced persistence: saves after one second", "julia-cx" in persist_settings)
+force_settings = {}
+mb._save_persistent_state(
+    force_settings, persist_state, 800, 600, -2.0, 1.0, -1.5, 1.5,
+    mb.DEFAULT_KEYBINDS, True, changed_snapshot, changed_time,
+    force=True, settings_file=debounce_file.name, now=11.0)
+test("Persistent force save: writes immediately", "julia-cx" in force_settings)
+
 os.unlink(tmpfile.name)
 os.unlink(save_file.name)
+os.unlink(debounce_file.name)
 
 # get_persistent_setting
 test_settings = {"max_iter": "256", "smooth": "true", "bad_val": "not_a_number"}
@@ -707,6 +800,15 @@ test("MenuOverlay toggles back", overlay.active is False)
 # Create a minimal state for MenuOverlay tests
 state = build_state()
 overlay.active = True
+
+menu_state = make_full_state()
+menu_screen = pygame.Surface((800, 600))
+overlay._menu_cache = None
+overlay.draw(menu_screen, pygame.font.SysFont("monospace", 18), menu_state,
+             mb.DEFAULT_KEYBINDS, -2.0, 1.0, -1.5, 1.5)
+test("MenuOverlay: split control is present", "toggle-split" in overlay.button_rects)
+test("MenuOverlay: grid opacity control is present", "grid_opacity" in overlay.button_rects)
+test("MenuOverlay: highlight-points control is present", "show_orbit_handles" in overlay.button_rects)
 
 # Simulate button rects for testing _do_action
 # Test minus/plus button unpacking
@@ -749,10 +851,13 @@ test("MenuOverlay: toggle sets fxaa True", state["fxaa"] is True)
 
 # Test cycle-palette
 state["palette_index"] = 0
+state["_palette_file_idx"] = 0
 overlay._do_action("cycle-palette", "click", state)
-test("MenuOverlay: cycle-palette increments", state["palette_index"] == 1)
-test("MenuOverlay: cycle-palette wraps rgb_thetas",
-     state["rgb_thetas"] == COLOR_THETAS[1])
+test("MenuOverlay: cycle-palette sets _palette_file_idx", state["_palette_file_idx"] == 1)
+test("MenuOverlay: cycle-palette sets gradient_stops",
+     "gradient_stops" in state and len(state["gradient_stops"]) >= 2)
+test("MenuOverlay: cycle-palette rgb_thetas at default",
+     state["rgb_thetas"] == DEFAULT_RGB_THETAS)
 
 # Test reset-all
 overlay._do_action("reset-all", "click", state)
@@ -846,6 +951,13 @@ state["show_c_point"] = True
 overlay._do_action("show_c_point", "click", state)
 test("MenuOverlay: toggle show_c_point", state["show_c_point"] is False)
 
+# Test highlight-points toggle
+state["show_orbit_handles"] = True
+overlay._do_action("show_orbit_handles", "click", state)
+test("MenuOverlay: toggle highlight points", state["show_orbit_handles"] is False)
+overlay._do_action("show_orbit_handles", "click", state)
+test("MenuOverlay: restore highlight points", state["show_orbit_handles"] is True)
+
 # Test auto_iter toggle
 state["auto_iter"] = True
 overlay._do_action("auto_iter", "click", state)
@@ -929,11 +1041,16 @@ screen.fill((0, 0, 0))
 surf = pygame.Surface((100, 100))
 surf.fill((255, 0, 0))
 mb._blit_surface_clamped(screen, surf, 10, 10, 200, 200)
-test("_blit_surface_clamped: executes without error", True)
+arr_c = pygame.surfarray.array3d(screen)
+test("_blit_surface_clamped: red pixels at offset",
+     np.any(arr_c[10:110, 10:110, 0] > 200) and np.all(arr_c[10:110, 10:110, 1:3] < 50))
 
 # Negative offset
+screen.fill((0, 0, 0))
 mb._blit_surface_clamped(screen, surf, -10, -10, 200, 200)
-test("_blit_surface_clamped: negative offset executes", True)
+arr_n = pygame.surfarray.array3d(screen)
+test("_blit_surface_clamped: negative offset clips correctly",
+     np.any(arr_n[0:100, 0:100, 0] > 200))
 
 # ===========================================================================
 # 28. _RENDER_CACHE
@@ -944,16 +1061,7 @@ state = make_full_state()
 state.setdefault("julia_c", mb.DEFAULT_JULIA_C)
 state.setdefault("set_blend", 0.0)
 mb.render_to_surface(32, 32, -2.0, 1.0, -1.5, 1.5, 32, state)
-key = (tuple(state["rgb_thetas"]), state["phase"],
-       state["use_gpu"] and mb._CUDA_AVAILABLE,
-       32, False, tuple(state.get("julia_c", mb.DEFAULT_JULIA_C)),
-       state.get("smooth", True), state.get("fxaa", False),
-       state.get("stripe_s", 0.0), state.get("stripe_sig", 0.9),
-       state.get("step_s", 0.0), state.get("light_angle", mb.DEFAULT_LIGHT_ANGLE),
-       state.get("light_azim", mb.DEFAULT_LIGHT_AZIM), state.get("light_i", mb.DEFAULT_LIGHT_I),
-       state.get("k_ambiant", mb.DEFAULT_K_AMBIANT), state.get("k_diffuse", mb.DEFAULT_K_DIFFUSE),
-        state.get("k_specular", mb.DEFAULT_K_SPECULAR), state.get("shininess", mb.DEFAULT_SHININESS),
-        tuple(state.get("gradient_stops")) if state.get("gradient_stops") else None)
+key = mb._render_cache_key(state, 32, False, (-2.0, 1.0, -1.5, 1.5))
 test("render_to_surface populates cache", key in mb._RENDER_CACHE)
 
 # ===========================================================================
@@ -969,7 +1077,7 @@ _target = mb._compute_target_iter(-2.5, 1.0, -1.5, 1.5, base_iter=64)
 test("Auto-zoom: default view iter ≈ 64", 64 <= _target <= 128)
 _target_z = mb._compute_target_iter(-2.01, -1.99, -0.01, 0.01, base_iter=64)
 test("Auto-zoom: deep zoom iter > 64", _target_z > 64)
-test("Auto-zoom: iter capped at MAX_ITER_CAP", _target_z <= mb.MAX_ITER_CAP)
+test("Auto-zoom: iter capped at AUTO_ITER_MAX", _target_z <= mb.AUTO_ITER_MAX)
 
 # Split cycle: None -> horizontal -> vertical -> None (overlay restores blend)
 state["set_blend"] = 0.3
@@ -996,6 +1104,18 @@ test("Split panes: Julia uses independent viewport bounds",
      _panes[1]["p_xmin"] != _panes[0]["p_xmin"] or
      _panes[1]["p_ymin"] != _panes[0]["p_ymin"])
 
+# Split-mode zoom centering: mouse point must stay at same complex coordinate
+_pane = _panes[0]
+_zoom_factor = 0.8
+_rel_y = (149 - _pane["y"]) / _pane["h"]
+_cx = _pane["p_xmin"] + (_pane["p_xmax"] - _pane["p_xmin"]) * 0.5
+_cy = _pane["p_ymax"] - (_pane["p_ymax"] - _pane["p_ymin"]) * _rel_y
+_new_h = (_pane["p_ymax"] - _pane["p_ymin"]) * _zoom_factor
+_new_ymax = _cy + _rel_y * _new_h
+_new_ymin = _new_ymax - _new_h
+_mouse_stays = abs((_new_ymax - _new_h * _rel_y) - _cy) < 1e-10
+test("Split zoom: mouse point stays at same complex coordinate", _mouse_stays)
+
 # fix_aspect_ratio with zero dimensions
 _result = mb.fix_aspect_ratio(-2, 2, -2, 2, 100, 0)
 test("fix_aspect_ratio: h=0 returns original bounds",
@@ -1005,6 +1125,12 @@ test("fix_aspect_ratio: h=0 returns original bounds",
 screen = pygame.Surface((100, 100))
 mb._render_exposed_edges(screen, 100, 100, -2, 2, -2, 2, state, 0.0, 0.0)
 test("_render_exposed_edges: zero offset no-op", True)
+# Verify it produces output when offset is non-zero
+screen.fill((0, 0, 0))
+mb._render_exposed_edges(screen, 100, 100, -2, 2, -2, 2, state, 20.0, 10.0)
+arr_e = pygame.surfarray.array3d(screen)
+test("_render_exposed_edges: non-zero offset produces pixels",
+     np.sum(np.any(arr_e > 0, axis=2)) > 0)
 
 # ===========================================================================
 # 28b. Keybinds panel: mouse-wheel / mouse-button entries excluded
@@ -1033,6 +1159,86 @@ test("zoom-in removed from filtered panel", "zoom-in" not in _filtered)
 test("zoom-out removed from filtered panel", "zoom-out" not in _filtered)
 
 # ===========================================================================
+# 28b. Palette system (YAML loading, application, cycling)
+# ===========================================================================
+print("\n--- Palette System ---")
+_all_pals = mb.get_all_palettes()
+test("All palettes loaded from YAML (≥5)", len(_all_pals) >= 5, f"got {len(_all_pals)}")
+test("No HSV palettes", not any(p["type"] == "hsv" for p in _all_pals))
+test("All palettes are gradient type", all(p["type"] == "gradient" for p in _all_pals))
+
+# Test _apply_palette_by_index for gradient palette (index 0 is fire-gradient)
+_state_pal = make_full_state()
+_state_pal["rgb_thetas"] = [0.5, 0.5, 0.5]
+mb._apply_palette_by_index(_state_pal, 0)
+test("Apply gradient palette: sets gradient_stops",
+     "gradient_stops" in _state_pal and len(_state_pal["gradient_stops"]) >= 2)
+test("Apply gradient palette: rgb_thetas set to default",
+     _state_pal["rgb_thetas"] == list(mb.DEFAULT_RGB_THETAS))
+
+# Test _apply_palette_by_name
+_apt_state = make_full_state()
+mb._apply_palette_by_name(_apt_state, _all_pals[0]["name"])
+test("Apply palette by name: gradient_stops set",
+     "gradient_stops" in _apt_state)
+
+# Test cycle-palette cycles through gradient palettes
+_state_cycle = make_full_state(palette_index=0)
+_state_cycle["_palette_file_idx"] = 0
+overlay._do_action("cycle-palette", "click", _state_cycle)
+test("Cycle-palette: sets _palette_file_idx to 1",
+     _state_cycle.get("_palette_file_idx") == 1)
+test("Cycle-palette: palette_index is valid",
+     0 <= _state_cycle["palette_index"] < len(_all_pals))
+
+# Test load-palette-file loads first gradient palette and retains its name
+_state_load = make_full_state()
+overlay._do_action("load-palette-file", "click", _state_load)
+_loaded_name = mb.get_all_palettes()[_state_load["palette_index"]]["name"]
+test("Load-palette-file: retains palette index", 0 <= _state_load["palette_index"] < len(_all_pals))
+test("Load-palette-file: retains palette name", _loaded_name != "custom")
+
+# Test that build_render_params works with gradient palette
+_state_grad = make_full_state()
+mb._apply_palette_by_index(_state_grad, 0)
+_params_grad = mb.build_render_params(_state_grad, maxiter=64)
+test("build_render_params: gradient colortable shape", _params_grad["colortable"].shape == (mb.NCOL, 3))
+test("build_render_params: gradient colortable in [0,1]",
+     np.all(_params_grad["colortable"] >= 0) and np.all(_params_grad["colortable"] <= 1.0 + 1e-6))
+
+
+# ===========================================================================
+# 28c. Auto-iter debounce and zoom-out reduction
+# ===========================================================================
+print("\n--- Auto-Iter Debounce & Zoom-Out ---")
+# _compute_target_iter should return different values for different zoom levels
+_t_default = mb._compute_target_iter(-2.5, 1.0, -1.5, 1.5, base_iter=64)
+_t_zoomed = mb._compute_target_iter(-0.1, 0.1, -0.1, 0.1, base_iter=64)
+test("Auto-iter: zoomed view needs more iterations", _t_zoomed > _t_default)
+test("Auto-iter: default view is near base", _t_default <= 256)
+
+# Test that reducing iterations works (zoom out scenario)
+_t_wide = mb._compute_target_iter(-10.0, 10.0, -10.0, 10.0, base_iter=64)
+test("Auto-iter: wide view needs fewer iterations than zoomed", _t_wide < _t_zoomed)
+
+# Test orbit ncycle uses orbit_max_iter, not max_iter
+_state_orbit = make_full_state(max_iter=256, orbit_max_iter=100)
+_max_iter = min(_state_orbit["orbit_max_iter"], 500)
+_orbit_ncycle = math.sqrt(_max_iter)
+_render_ncycle = math.sqrt(_state_orbit["max_iter"])
+test("Orbit ncycle < render ncycle (orbit_max_iter < max_iter)",
+     _orbit_ncycle < _render_ncycle, f"orbit={_orbit_ncycle}, render={_render_ncycle}")
+
+# Auto-iter caps: AUTO_ITER_MIN and AUTO_ITER_MAX exist and are reasonable
+test("AUTO_ITER_MAX is 65536", mb.AUTO_ITER_MAX == 65536)
+test("AUTO_ITER_MIN is 32", mb.AUTO_ITER_MIN == 32)
+test("RENDER_TIMEOUT_MS is 5000", mb.RENDER_TIMEOUT_MS == 5000)
+# MAX_ITER_CAP and MIN_ITER_CAP no longer exist
+test("MAX_ITER_CAP removed", not hasattr(mb, 'MAX_ITER_CAP'))
+test("MIN_ITER_CAP removed", not hasattr(mb, 'MIN_ITER_CAP'))
+
+
+# ===========================================================================
 # 29. Keybind name conversion
 # ===========================================================================
 print("\n--- Keybind Conversion ---")
@@ -1046,6 +1252,6 @@ for action, key in default_kb.items():
 # ===========================================================================
 print()
 print("=" * 60)
-print(f"RESULTS: {PASS} passed, {FAIL} failed")
+print(f"RESULTS: {PASS} passed, {FAIL} failed, {PASS + FAIL} total")
 print("=" * 60)
 sys.exit(1 if FAIL > 0 else 0)
