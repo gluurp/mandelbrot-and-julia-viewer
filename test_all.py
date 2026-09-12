@@ -766,6 +766,22 @@ mb._save_persistent_state(
     force=True, settings_file=debounce_file.name, now=11.0)
 test("Persistent force save: writes immediately", "julia-cx" in force_settings)
 
+roundtrip_file = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+roundtrip_file.close()
+mb.save_settings(roundtrip_file.name, persist_settings)
+roundtrip = mb.load_settings(roundtrip_file.name)
+test("Persistent YAML round-trip: Julia c",
+     roundtrip.get("julia-cx") == "-0.9" and roundtrip.get("julia-cy") == "0.3")
+test("Persistent YAML round-trip: Mandelbrot orbit",
+     roundtrip.get("orbit-mx") == "-0.3" and roundtrip.get("orbit-my") == "0.4")
+test("Persistent YAML round-trip: Julia orbit",
+     roundtrip.get("orbit-jx") == "0.2" and roundtrip.get("orbit-jy") == "-0.7")
+test("Persistent YAML round-trip: main viewport",
+     roundtrip.get("view-xmin") == "-2.0" and roundtrip.get("view-ymax") == "1.5")
+test("Persistent YAML round-trip: Julia viewport",
+     roundtrip.get("julia-viewport") == "-1.2,1.2,-0.8,0.8")
+os.unlink(roundtrip_file.name)
+
 os.unlink(tmpfile.name)
 os.unlink(save_file.name)
 os.unlink(debounce_file.name)

@@ -1,6 +1,20 @@
-.venv/
+# Python
 __pycache__/
 *.pyc
-debug/
-.pytest_cache/
+*.pyo
 *.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+.venv*/
+
+# Debug logs
+debug/
+*.log
+
+# Kilo agent state
+.kilo/
+
+# OS
+.DS_Store

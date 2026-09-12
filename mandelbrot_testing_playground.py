@@ -518,9 +518,9 @@ def _save_persistent_state(settings, state, width, height, xmin, xmax, ymin, yma
         except OSError as exc:
             print(f"[settings] Could not save {settings_file}: {exc}",
                   file=sys.stderr)
-            return last_snapshot, last_change
+            return snapshot, last_change
         return snapshot, None
-    return last_snapshot, last_change
+    return snapshot, last_change
 
 
 def load_palette_file(filename):
