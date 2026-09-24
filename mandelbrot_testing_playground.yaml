@@ -1,0 +1,80 @@
+# Persistence
+persistent: "True"
+
+# Viewport
+julia-cx: "-1.0236536561265082"
+julia-cy: "0.7751250617589003"
+julia-viewport: "-1474.9770423723323,1327.8358367693206,-1361.0366676360695,4847.726039323288"
+orbit-jx: "-1.7133411673174805"
+orbit-jy: "-3.5064563728387537"
+orbit-mx: "0.08604573135535665"
+orbit-my: "-0.6048386617414397"
+orbit-point-size: "3"
+split-mode: "None"
+split-orientation: "vertical"
+view-xmax: "1.6932375979811853"
+view-xmin: "-1.961433253611979"
+view-ymax: "0.583648788422317"
+view-ymin: "-1.430736720329811"
+
+# Rendering
+auto-iter: "False"
+max-auto-iterations: "65536"
+max-iterations: "2048"
+max-orbits: "512"
+max-precision-bits: "4096"
+precision-bits: "256"
+precision-mode: "auto"
+show-uncertainty: "True"
+
+# Lighting
+k_ambiant: "0.1"
+k_diffuse: "0.5"
+k_specular: "0.5"
+light_angle: "0.46"
+light_azim: "0.5"
+light_i: "0.75"
+shininess: "20.0"
+
+# Colors & palette
+c-point-size: "5"
+cycle-opacity: "0.9"
+cycle-size: "5"
+center-opacity: "0.9"
+center-size: "7"
+lines-opacity-j: "1.0"
+lines-opacity-m: "1.0"
+orbits-opacity-j: "1.0"
+orbits-opacity-m: "1.0"
+palette-file-idx: "2"
+palette-index: "1"
+point-opacity-c: "1.0"
+point-opacity-j: "1.0"
+point-opacity-m: "1.0"
+point-output-format: "(x, y)"
+point-size: "5"
+point-size-c: "5"
+point-size-j: "5"
+point-size-m: "5"
+set-blend: "0.0"
+step_s: "0.0"
+stripe_s: "0.0"
+stripe_sig: "0.9"
+
+# Display & grid
+fxaa: "True"
+grid-label-opacity: "1.0"
+grid-opacity: "0.4"
+smooth: "True"
+use-gpu: "True"
+
+# Points & visibility
+highlight-flash-duration-ms: "1000"
+highlight-flash-frequency: "0.02"
+highlight-points: "False"
+show-keybinds: "False"
+show-point-info: "True"
+
+# Keybinds
+keybind.menu: "m"
+keybind.quit: "q"

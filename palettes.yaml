@@ -1,0 +1,73 @@
+palettes:
+  - name: fire-gradient
+    main color:
+      stops:
+        - [0.0, 230, 0, 0]
+        - [0.25, 255, 100, 0]
+        - [0.5, 255, 180, 0]
+        - [0.75, 255, 240, 100]
+        - [1.0, 255, 255, 255]
+  - name: deep-sea-gradient
+    main color:
+      stops:
+        - [0.0, 0, 30, 80]
+        - [0.5, 0, 120, 180]
+        - [1.0, 100, 200, 255]
+  - name: twilight-gradient
+    main color:
+      stops:
+        - [0.0, 10, 0, 40]
+        - [0.5, 60, 20, 120]
+        - [1.0, 200, 150, 240]
+  - name: aurora-gradient
+    main color:
+      stops:
+        - [0.0, 0, 60, 30]
+        - [0.4, 0, 200, 80]
+        - [0.7, 180, 60, 200]
+        - [1.0, 100, 200, 255]
+  - name: forest-gradient
+    main color:
+      stops:
+        - [0.0, 20, 80, 20]
+        - [0.4, 60, 160, 40]
+        - [0.7, 120, 200, 60]
+        - [1.0, 220, 240, 200]
+  - name: sunset-gradient
+    main color:
+      stops:
+        - [0.0, 80, 0, 20]
+        - [0.3, 200, 60, 40]
+        - [0.6, 255, 120, 30]
+        - [1.0, 255, 200, 180]
+  - name: amber-gradient
+    main color:
+      stops:
+        - [0.0, 255, 100, 0]
+        - [0.5, 255, 180, 30]
+        - [1.0, 255, 255, 180]
+  - name: copper-gradient
+    main color:
+      stops:
+        - [0.0, 80, 40, 20]
+        - [0.5, 180, 100, 50]
+        - [1.0, 255, 190, 120]
+  - name: electric-gradient
+    main color:
+      stops:
+        - [0.0, 255, 0, 0]
+        - [0.5, 255, 80, 0]
+        - [1.0, 255, 200, 0]
+  - name: lava-gradient
+    main color:
+      stops:
+        - [0.0, 40, 0, 10]
+        - [0.5, 220, 60, 0]
+        - [0.8, 255, 140, 0]
+        - [1.0, 255, 220, 80]
+  - name: teal-gradient
+    main color:
+      stops:
+        - [0.0, 0, 60, 100]
+        - [0.5, 0, 180, 180]
+        - [1.0, 180, 240, 255]

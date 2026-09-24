@@ -1,0 +1,53 @@
+palettes:
+  - name: fire-gradient
+    # we do away with type: gradient
+    unified color: #if this is present, the python will delete the other sections in favor of the unified color
+      stops:
+        - [0.00, 230,   0,   0]
+        - [0.25, 255, 100,   0]
+        - [0.50, 255, 180,   0]
+        - [0.75, 255, 240, 100]
+        - [1.00, 255, 255, 255]
+    mb set: 
+      #this and anything else will all be erased
+
+  - name: fire-gradient
+    main color: #this section is mandatory, unless its unified color. this will be the backup. if any section is missing, itll adopt this. it will write it to the file
+        stops:
+        - [0.00, 230,   0,   0] #the amounts of stops needs to be at least one, which would be one color only, but should be able to be just about infinite, i mean not literally ofc
+        - [0.25, 255, 100,   0]
+        - [0.50, 255, 180,   0]
+        - [0.75, 255, 240, 100]
+        - [1.00, 255, 255, 255]
+    mb lines: #any order will work for the first time, it should be reordered from the python anyways hopefully and rewritten. choose whatever order you like that looks the nicest
+      stops:
+        - [0.00, 230,   0,   0]
+        - [0.25, 255, 100,   0]
+        - [0.50, 255, 180,   0]
+        - [0.75, 255, 240, 100]
+        - [1.00, 255, 255, 255]
+    ju lines: 
+      stops: 
+        - [1, 2, 3, 4] #ill not write it for times sake, just imagine theyre there properly
+    mb set:
+      ...
+    ju set:
+      ...
+    mb orbit point:
+    ju orbit point:
+    mb orbits:
+    ju orbits:
+    ju constant: #feel free to rename these to something nicer
+    main menu:
+    keybinds menu:
+    points menu:
+    grid:
+    julia c point:
+    mb orbit drag point:
+    ju orbit drag point:
+    #if theres any more you think should be added, you should very much add them. anything thats colored should have its own entry. 
+    
+
+
+
+
